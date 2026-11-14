@@ -101,7 +101,7 @@ render=function(){
 };
 const aiOriginalPageAllowed=pageAllowed;
 pageAllowed=function(p){
-  if(p==='ai-predictions')return currentRole()!=='viewer';
+  if(p==='ai-predictions')return true;
   return aiOriginalPageAllowed(p);
 };
 document.querySelector('[data-page="ai-predictions"]')?.addEventListener('click',()=>{
