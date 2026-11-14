@@ -154,7 +154,32 @@ function bhoomiPage(){
  return `<div class="page-head"><div><h1>BhoomiPredict AI</h1><p>Acquisition-stage risk triage, explanations and action follow-up</p></div><button class="primary" onclick="go('projects')">Update project records</button></div>
  <div class="panel" style="margin-bottom:18px"><b>Screening baseline — not a trained machine-learning model.</b><p style="margin:6px 0 0;color:#657087">Delay scores and durations are transparent heuristics from manually entered project indicators. They are not calibrated probabilities or official forecasts. Only enter records you are authorized to use. Verified feedback is stored for later evaluation; it does not automatically retrain a model.</p></div>
  ${cards}<div class="panel" style="margin-bottom:18px"><h3>Workflow coverage</h3><div class="bars"><div class="bar-row"><span>Source & verification</span><span>Record source name, source ID, update date and verification in Projects.</span><b>${verified}/${projects.length}</b></div><div class="bar-row"><span>Data integration</span><span>Standardize project stage and capture acquisition progress measures.</span><b>${screened}/${projects.length}</b></div><div class="bar-row"><span>Feedback</span><span>Record actual status, progress, delay and verification.</span><b>Ready</b></div></div></div>
+ <div class="panel" id="lcwModelSummary" style="margin-bottom:18px"><h3>LandPortal LCW · historical count model</h3><p style="color:#657087">Loading the saved model evaluation…</p></div>
  <div class="panel"><h3>Project risk, explanation and recommended actions</h3><div class="table-wrap"><table class="data-table" style="min-width:1150px"><thead><tr><th>Project / stage</th><th>Risk screening</th><th>Contributing factors</th><th>Suggested actions</th><th>Source provenance</th><th>Officer feedback</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="text-align:center;padding:35px">No project records yet. Add records to start the screening workflow.</td></tr>'}</tbody></table></div></div>`;
+}
+let lcwEvaluationCache=null,lcwEvaluationRequest=null;
+async function loadLcwEvaluation(){
+ const panel=$('#lcwModelSummary');if(!panel)return;
+ try{
+  if(!lcwEvaluationCache){
+   lcwEvaluationRequest??=fetch('./landportal-lcw-evaluation.json').then(response=>{
+    if(!response.ok)throw new Error(`Evaluation file returned HTTP ${response.status}.`);
+    return response.json();
+   });
+   const loaded=await lcwEvaluationRequest;
+   if(!loaded?.validation)throw new Error('Evaluation file has an invalid format.');
+   lcwEvaluationCache=loaded;
+  }
+  if(!panel.isConnected)return;
+  const validation=lcwEvaluationCache.validation;
+  const mae=Number(validation.model.mae),baseline=Number(validation.last_observation_baseline.mae);
+  const improvement=Number(validation.mae_improvement_over_baseline);
+  const range=validation.test_year_range.map(safeText).join('–');
+  panel.innerHTML=`<h3>LandPortal LCW · historical count model</h3><div class="report-grid"><div class="report-card"><span>Observed records</span><div class="big">${safeText(lcwEvaluationCache.observed_records)}</div><small>${safeText(lcwEvaluationCache.observed_year_range.join('–'))}</small></div><div class="report-card"><span>Chronological holdout MAE</span><div class="big">${Number.isFinite(mae)?mae.toFixed(2):'—'}</div><small>${range} · ${safeText(validation.test_records)} test rows</small></div><div class="report-card"><span>Last-observation baseline MAE</span><div class="big">${Number.isFinite(baseline)?baseline.toFixed(2):'—'}</div><small>${Number.isFinite(improvement)?`${(improvement*100).toFixed(1)}% lower on this holdout`:'No baseline comparison'}</small></div><div class="report-card"><span>Years not represented</span><div class="big">${safeText(lcwEvaluationCache.missing_years_not_imputed)}</div><small>Missing years were not treated as zeros</small></div></div><p style="color:#657087;margin-bottom:0">Separate national reported-conflict trend only. It is not used in project risk screening, is not a delay model, and is stale (latest data: ${safeText(lcwEvaluationCache.observed_year_range[1])}).</p>`;
+ }catch(error){
+  lcwEvaluationRequest=null;
+  if(panel.isConnected)panel.innerHTML=`<h3>LandPortal LCW · historical count model</h3><p class="notification-empty">Could not load the saved evaluation: ${safeText(error.message)}</p>`;
+ }
 }
 function filtered(){return projects.filter(p=>(!filters.q||(p.name+' '+p.id).toLowerCase().includes(filters.q.toLowerCase()))&&(!filters.state||p.state===filters.state)&&(!filters.district||p.district===filters.district)&&(!filters.status||p.status===filters.status)&&(!filters.risk||p.risk===filters.risk))}
 function projectTable(){
@@ -212,7 +237,7 @@ function bindSettings(){
   }catch(error){toast('Could not save profile: '+error.message);button.disabled=false;button.textContent='Save Profile';}
  });
 }
-function render(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#content').innerHTML=({dashboard,projects:projectTable,bhoomi:bhoomiPage,insights,map:mapPage,reports,settings}[page])();if(page==='projects'){bindProjectFilters();$('#addProject').onclick=openModal;$('#importCsv').onclick=()=>$('#csvImport').click();$('#csvImport').onchange=async e=>{const file=e.target.files?.[0];if(file)await importProjectCsv(file);};}if(page==='settings')bindSettings();}
+function render(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#content').innerHTML=({dashboard,projects:projectTable,bhoomi:bhoomiPage,insights,map:mapPage,reports,settings}[page])();if(page==='projects'){bindProjectFilters();$('#addProject').onclick=openModal;$('#importCsv').onclick=()=>$('#csvImport').click();$('#csvImport').onchange=async e=>{const file=e.target.files?.[0];if(file)await importProjectCsv(file);};}if(page==='bhoomi')loadLcwEvaluation();if(page==='settings')bindSettings();}
 function go(p){page=p;render();window.scrollTo(0,0)}
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.page)));
 function bindProjectFilters(){[['projectSearch','q'],['stateFilter','state'],['districtFilter','district'],['statusFilter','status'],['riskFilter','risk']].forEach(([id,k])=>$('#'+id).addEventListener('input',e=>{filters[k]=e.target.value;pageNo=1;const pos=window.scrollY;render();window.scrollTo(0,pos)}));$('#reset').onclick=()=>{filters={q:'',state:'',district:'',status:'',risk:''};pageNo=1;render()}}

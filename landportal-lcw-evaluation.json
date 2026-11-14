@@ -1,0 +1,96 @@
+{
+  "indicator": "LCW-LCI-NOCONF",
+  "country": "India",
+  "observed_records": 60,
+  "observed_year_range": [
+    1912,
+    2018
+  ],
+  "missing_years_not_imputed": 47,
+  "validation": {
+    "method": "chronological holdout; final 20% of observed records",
+    "training_records": 48,
+    "test_records": 12,
+    "test_year_range": [
+      2007,
+      2018
+    ],
+    "model": {
+      "mae": 19.37002661203641,
+      "rmse": 23.756905864891042
+    },
+    "last_observation_baseline": {
+      "mae": 20.75,
+      "rmse": 26.609835274449434
+    },
+    "mae_improvement_over_baseline": 0.06650474158860686,
+    "holdout_predictions": [
+      {
+        "year": 2007,
+        "actual_count": 23,
+        "predicted_count": 9.521160992116195
+      },
+      {
+        "year": 2008,
+        "actual_count": 28,
+        "predicted_count": 10.371685212613556
+      },
+      {
+        "year": 2009,
+        "actual_count": 31,
+        "predicted_count": 11.324263179017526
+      },
+      {
+        "year": 2010,
+        "actual_count": 18,
+        "predicted_count": 12.393434950863089
+      },
+      {
+        "year": 2011,
+        "actual_count": 27,
+        "predicted_count": 13.596131190976909
+      },
+      {
+        "year": 2012,
+        "actual_count": 26,
+        "predicted_count": 14.952113193578034
+      },
+      {
+        "year": 2013,
+        "actual_count": 28,
+        "predicted_count": 16.484502063529533
+      },
+      {
+        "year": 2014,
+        "actual_count": 33,
+        "predicted_count": 18.220416686062798
+      },
+      {
+        "year": 2015,
+        "actual_count": 67,
+        "predicted_count": 20.191744787124627
+      },
+      {
+        "year": 2016,
+        "actual_count": 69,
+        "predicted_count": 22.436077228472147
+      },
+      {
+        "year": 2017,
+        "actual_count": 54,
+        "predicted_count": 24.997843028174863
+      },
+      {
+        "year": 2018,
+        "actual_count": 25,
+        "predicted_count": 27.92969185696619
+      }
+    ]
+  },
+  "limitations": [
+    "The dataset has no project-level acquisition stages or delay outcomes.",
+    "Absent calendar years are not treated as zero-count years.",
+    "Reported conflict counts are not calibrated probabilities of land-acquisition delay.",
+    "The latest observation is 2018; this model is historical and not a current forecast."
+  ]
+}

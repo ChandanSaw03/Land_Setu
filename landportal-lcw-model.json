@@ -1,0 +1,23 @@
+{
+  "model_type": "polynomial_ridge_regression",
+  "target_transform": "log1p",
+  "target": "reported_land_conflict_count",
+  "indicator": "LCW-LCI-NOCONF",
+  "country": "IND",
+  "training_records": 60,
+  "training_year_range": [
+    1912,
+    2018
+  ],
+  "degree": 3,
+  "alpha": 1e-06,
+  "center_year": 1983.45,
+  "scale_years": 71.45000000000005,
+  "coefficients": [
+    1.1459393056318476,
+    2.263334320053716,
+    5.9838256229195785,
+    4.398305099114267
+  ],
+  "intended_use": "Observed national conflict-count trend only; not project delay or acquisition risk."
+}

@@ -29,12 +29,29 @@ BhoomiPredict workflow
   feedback record also saves the current baseline score and method version for
   future comparison; it does not automatically retrain a model.
 
+LandPortal LCW model
+--------------------
+Run python3 train_landportal_lcw.py to train the separate national reported-
+conflict-count trend model. It writes landportal-lcw-model.json and
+landportal-lcw-evaluation.json. The script uses a chronological 20% holdout and
+compares against a last-observation baseline; run python3 -m unittest
+test_train_landportal_lcw.py to verify data loading and evaluation behavior.
+The BhoomiPredict page displays the evaluation summary separately from project
+risk results.
+On the supplied snapshot, holdout MAE was 19.37 counts versus 20.75 for the
+baseline (about 6.7% lower); this modest result is not evidence of a current
+forecast.
+
 Important limitations
 ---------------------
 The current screening is a transparent rule-based baseline, not a trained ML
 model. Its score is not a calibrated delay probability, and its duration is not
 an official forecast. No government MIS/API connector, GIS boundary dataset,
-model training, model evaluation, or automatic retraining is configured.
+trained project-delay model, or automatic retraining is configured. The
+LandPortal model is a separate historical count-trend experiment. The supplied
+data has no project-level acquisition stages or delay outcomes, omits 47 years
+between its observations, and ends in 2018. It must not be used as a current
+forecast or as a project-delay predictor.
 CSV import is a manual workflow: use only records you are authorized to process,
 and verify source provenance before marking a record verified. Feedback is
 persisted for future evaluation but does not trigger retraining.
