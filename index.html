@@ -92,7 +92,7 @@ function roleLabel(role=currentRole()){return ({national_admin:'National Admin',
 function canCreateProjects(){return ['national_admin','state_admin','project_manager'].includes(currentRole())}
 function canEditProject(p){return currentRole()==='national_admin'||(currentRole()==='state_admin'&&p.state===profileData?.assigned_state)||(currentRole()==='project_manager'&&projectAssignments.has(p.dbId))}
 function canDeleteProject(p){return currentRole()==='national_admin'||(currentRole()==='state_admin'&&p.state===profileData?.assigned_state)}
-function pageAllowed(p){if(p==='users')return currentRole()==='national_admin';if(p==='insights')return currentRole()!=='viewer';return ['dashboard','projects','parcels','legal','acquisition','resettlement','grievances','social-impact','environmental','timeline','map','reports','settings'].includes(p)}
+function pageAllowed(p){if(p==='ai-predictions')return true;if(p==='users')return currentRole()==='national_admin';if(p==='insights')return currentRole()!=='viewer';return ['dashboard','projects','parcels','legal','acquisition','resettlement','grievances','social-impact','environmental','timeline','map','reports','settings'].includes(p)}
 function statusClass(s){return s==='At Risk'||s==='Critical'?'risk':s==='On Track'||s==='Completed'?'track':s==='On Hold'?'medium':''}
 function formatProject(row){
  const date=row.expected_completion?new Date(row.expected_completion+'T00:00:00'):null;
@@ -689,5 +689,5 @@ $('#globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){filters.q=
 render();
 </script>
 <script type="module" src="./auth.js"></script>
-<script src="./ai-predictions.js"></script>
+<script src="./ai-predictions.js?v=20261115-viewer-access-2"></script>
 </body></html>
