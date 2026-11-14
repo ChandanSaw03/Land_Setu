@@ -46,7 +46,7 @@ main{min-width:0;padding:0 28px 36px}.topbar{height:104px;display:flex;align-ite
 <div class="toast" id="toast"></div>
 <script>
 let projects=[];
-let currentUser=null,supabaseClient=null;
+let currentUser=null,supabaseClient=null,profileData=null;
 let page='dashboard',pageNo=1,filters={q:'',state:'',district:'',status:'',risk:''};
 const $=s=>document.querySelector(s);
 function statusClass(s){return s==='At Risk'||s==='Critical'?'risk':s==='On Track'||s==='Completed'?'track':s==='On Hold'?'medium':''}
@@ -65,8 +65,8 @@ async function recordActivity(projectId,action,details){
  const {error}=await supabaseClient.from('project_activity').insert({project_id:projectId,user_id:currentUser.id,action,details});
  if(error)console.warn('Project activity was not recorded:',error.message);
 }
-window.addEventListener('landsetu:authenticated',async event=>{currentUser=event.detail?.user||null;supabaseClient=window.landsetuSupabase||null;await loadProjects();});
-window.addEventListener('landsetu:signedout',()=>{currentUser=null;projects=[];render();});
+window.addEventListener('landsetu:authenticated',async event=>{currentUser=event.detail?.user||null;profileData=event.detail?.profile||null;supabaseClient=window.landsetuSupabase||null;await loadProjects();});
+window.addEventListener('landsetu:signedout',()=>{currentUser=null;profileData=null;projects=[];render();});
 function statCards(items=projects){
  const total=items.length,onTrack=items.filter(p=>p.status==='On Track'||p.status==='Completed').length;
  const atRisk=items.filter(p=>p.status==='At Risk'||p.risk==='High'||p.risk==='Critical').length;
@@ -108,8 +108,38 @@ function reports(){
  const avgProgress=projects.length?Math.round(projects.reduce((n,p)=>n+p.progress,0)/projects.length):0;
  return `<div class="page-head"><div><h1>Reports</h1><p>Generate reports from your saved project records</p></div><button class="primary" onclick="downloadReport()">↓ Export CSV</button></div><div class="report-grid"><div class="report-card"><span>📊 Project Overview</span><div class="big">${projects.length}</div><small>Projects tracked in your workspace</small><p><button class="view" onclick="downloadReport()">Download CSV</button></p></div><div class="report-card"><span>⚠️ High / Critical Risk</span><div class="big">${high}</div><small>Projects flagged High or Critical</small><p><button class="view" onclick="downloadReport()">Download CSV</button></p></div><div class="report-card"><span>📈 Average Progress</span><div class="big">${avgProgress}%</div><small>Mean progress across saved projects</small><p><button class="view" onclick="downloadReport()">Download CSV</button></p></div><div class="report-card"><span>📍 State-wise Summary</span><div class="big">${states}</div><small>States / regions represented in records</small><p><button class="view" onclick="downloadReport()">Download CSV</button></p></div></div>`
 }
-function settings(){return `<div class="page-head"><div><h1>Settings</h1><p>Manage your account and platform preferences</p></div></div><div class="settings-grid"><div class="panel"><h3>Profile Settings</h3><div class="settings-row"><span><b>Amit Sharma</b><br><small>National Admin</small></span><button class="view" onclick="toast('Profile settings opened')">Edit</button></div><div class="settings-row"><span>Email notifications</span><button class="toggle on" onclick="this.classList.toggle('on')"></button></div><div class="settings-row"><span>Weekly project summary</span><button class="toggle on" onclick="this.classList.toggle('on')"></button></div><div class="settings-row"><span>AI risk alerts</span><button class="toggle on" onclick="this.classList.toggle('on')"></button></div></div><div class="panel"><h3>Platform Preferences</h3><div class="settings-row"><span>Default region</span><select class="pill-select"><option>All India</option><option>North India</option><option>South India</option></select></div><div class="settings-row"><span>Language</span><select class="pill-select"><option>English</option><option>हिन्दी</option></select></div><div class="settings-row"><span>Compact dashboard</span><button class="toggle" onclick="this.classList.toggle('on')"></button></div></div></div>`}
-function render(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#content').innerHTML=({dashboard,projects:projectTable,insights,map:mapPage,reports,settings}[page])();if(page==='projects')bindProjectFilters();if(page==='projects')$('#addProject').onclick=openModal}
+function safeText(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function settings(){
+ const p=profileData||{},email=currentUser?.email||'';
+ return `<div class="page-head"><div><h1>Account Settings</h1><p>Manage your personal details and account security</p></div></div>
+ <div class="settings-grid"><div class="panel"><h3>Personal Profile</h3><form id="profileSettingsForm" class="form-grid">
+ <label>Full name<input name="full_name" required maxlength="100" value="${safeText(p.full_name||currentUser?.user_metadata?.full_name||'')}" placeholder="Your full name"></label>
+ <label>Email address<input value="${safeText(email)}" disabled></label>
+ <label>Phone number<input name="phone" maxlength="30" value="${safeText(p.phone||'')}" placeholder="Phone number"></label>
+ <label>Department<input name="department" maxlength="100" value="${safeText(p.department||'')}" placeholder="Department"></label>
+ <label>Designation<input name="designation" maxlength="100" value="${safeText(p.designation||'')}" placeholder="Designation"></label>
+ <label>Account role<input value="${safeText(p.role||'viewer')}" disabled></label>
+ <div style="grid-column:1/-1"><button class="primary" type="submit">Save Profile</button></div></form></div>
+ <div class="panel"><h3>Account Information</h3><div class="settings-row"><span>Sign-in email</span><b>${safeText(email||'Not available')}</b></div><div class="settings-row"><span>Role</span><b>${safeText(p.role||'viewer')}</b></div><div class="settings-row"><span>Member since</span><b>${p.created_at?new Date(p.created_at).toLocaleDateString('en-IN'):'—'}</b></div><p style="color:#657087;font-size:13px;line-height:1.6">Your role and sign-in email are managed by the authentication and access-control system. Contact an administrator if either needs to change.</p></div></div>`
+}
+function bindSettings(){
+ const form=$('#profileSettingsForm');if(!form)return;
+ form.addEventListener('submit',async e=>{
+  e.preventDefault();if(!currentUser||!supabaseClient)return toast('Please sign in again.');
+  const d=Object.fromEntries(new FormData(form));
+  const payload={full_name:d.full_name.trim(),phone:d.phone.trim()||null,department:d.department.trim()||null,designation:d.designation.trim()||null,updated_at:new Date().toISOString()};
+  const button=form.querySelector('button[type="submit"]');button.disabled=true;button.textContent='Saving…';
+  try{
+   const {data,error}=await supabaseClient.from('profiles').update(payload).eq('id',currentUser.id).select('*').single();
+   if(error)throw error;
+   profileData=data;
+   const name=data.full_name||'User',box=document.querySelector('.profile');
+   if(box){const avatar=box.querySelector('.avatar'),labels=box.querySelectorAll('div > b, div > small');if(avatar)avatar.textContent=name.slice(0,1).toUpperCase();if(labels[0])labels[0].textContent=name;}
+   toast('Profile updated successfully');render();
+  }catch(error){toast('Could not save profile: '+error.message);button.disabled=false;button.textContent='Save Profile';}
+ });
+}
+function render(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#content').innerHTML=({dashboard,projects:projectTable,insights,map:mapPage,reports,settings}[page])();if(page==='projects')bindProjectFilters();if(page==='projects')$('#addProject').onclick=openModal;if(page==='settings')bindSettings();}
 function go(p){page=p;render();window.scrollTo(0,0)}
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.page)));
 function bindProjectFilters(){[['projectSearch','q'],['stateFilter','state'],['districtFilter','district'],['statusFilter','status'],['riskFilter','risk']].forEach(([id,k])=>$('#'+id).addEventListener('input',e=>{filters[k]=e.target.value;pageNo=1;const pos=window.scrollY;render();window.scrollTo(0,pos)}));$('#reset').onclick=()=>{filters={q:'',state:'',district:'',status:'',risk:''};pageNo=1;render()}}
