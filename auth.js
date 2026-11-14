@@ -191,7 +191,7 @@ if (!configured) {
       .maybeSingle();
 
     const fullName = profile?.full_name || user.user_metadata?.full_name || user.email?.split("@")[0] || "User";
-    const role = profile?.role || "User";
+    const role = ({national_admin:"National Admin",state_admin:"State Admin",project_manager:"Project Manager",analyst:"Analyst",viewer:"Viewer"})[profile?.role] || "Viewer";
     const profileBox = document.querySelector(".profile");
 
     if (profileBox) {
