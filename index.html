@@ -22,6 +22,7 @@ main{min-width:0;padding:0 28px 36px}.topbar{height:104px;display:flex;align-ite
     <button data-page="map"><span class="ico">◫</span>Map</button>
     <button data-page="reports"><span class="ico">▤</span>Reports</button>
     <button data-page="settings"><span class="ico">⚙</span>Settings</button>
+    <button data-page="users" id="usersNav" hidden><span class="ico">♙</span>User Management</button>
   </nav>
   <div class="sidebar-bottom"><div class="monument">♜</div><b>Smarter Land<br>Stronger India</b><div class="tricolor"></div></div>
 </aside>
@@ -43,13 +44,20 @@ main{min-width:0;padding:0 28px 36px}.topbar{height:104px;display:flex;align-ite
 <label>Risk level<select name="risk"><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label>
 <label>Progress (%)<input name="progress" type="number" min="0" max="100" value="0"></label>
 <label>Expected date<input name="date" type="month"></label>
+<label id="managerAssignField" hidden>Assign Project Manager<select name="manager_id" id="managerSelect"><option value="">Unassigned</option></select></label>
 </div><div class="modal-actions"><button type="button" class="secondary" id="cancel">Cancel</button><button type="submit" class="primary">Save Project</button></div></form></div></div>
 <div class="toast" id="toast"></div>
 <script>
 let projects=[];
-let currentUser=null,supabaseClient=null,profileData=null;
+let currentUser=null,supabaseClient=null,profileData=null,projectAssignments=new Set(),managerProfiles=[],profileDirectory=[];
 let page='dashboard',pageNo=1,filters={q:'',state:'',district:'',status:'',risk:''};
 const $=s=>document.querySelector(s);
+function currentRole(){return profileData?.role||'viewer'}
+function roleLabel(role=currentRole()){return ({national_admin:'National Admin',state_admin:'State Admin',project_manager:'Project Manager',analyst:'Analyst',viewer:'Viewer'})[role]||'Viewer'}
+function canCreateProjects(){return ['national_admin','state_admin','project_manager'].includes(currentRole())}
+function canEditProject(p){return currentRole()==='national_admin'||(currentRole()==='state_admin'&&p.state===profileData?.assigned_state)||(currentRole()==='project_manager'&&projectAssignments.has(p.dbId))}
+function canDeleteProject(p){return currentRole()==='national_admin'||(currentRole()==='state_admin'&&p.state===profileData?.assigned_state)}
+function pageAllowed(p){if(p==='users')return currentRole()==='national_admin';if(p==='insights')return currentRole()!=='viewer';return ['dashboard','projects','map','reports','settings'].includes(p)}
 function statusClass(s){return s==='At Risk'||s==='Critical'?'risk':s==='On Track'||s==='Completed'?'track':s==='On Hold'?'medium':''}
 function formatProject(row){
  const date=row.expected_completion?new Date(row.expected_completion+'T00:00:00'):null;
@@ -59,7 +67,13 @@ async function loadProjects(){
  if(!supabaseClient||!currentUser)return;
  const {data,error}=await supabaseClient.from('projects').select('*').order('created_at',{ascending:false});
  if(error){toast('Could not load projects: '+error.message);return;}
- projects=(data||[]).map(formatProject);pageNo=1;render();
+ projects=(data||[]).map(formatProject);
+ projectAssignments=new Set();
+ if(projects.length){const {data:assignments}=await supabaseClient.from('project_assignments').select('project_id,user_id');projectAssignments=new Set((assignments||[]).filter(x=>x.user_id===currentUser.id).map(x=>x.project_id));}
+ managerProfiles=[];
+ if(['national_admin','state_admin'].includes(currentRole())){let q=supabaseClient.from('profiles').select('id,full_name,email,assigned_state').eq('role','project_manager').order('full_name');if(currentRole()==='state_admin')q=q.eq('assigned_state',profileData?.assigned_state||'');const {data:managers}=await q;managerProfiles=managers||[];}
+ if(currentRole()==='national_admin'){const {data:people}=await supabaseClient.from('profiles').select('id,full_name,email,role,assigned_state').order('full_name');profileDirectory=people||[];}
+ pageNo=1;render();
 }
 async function recordActivity(projectId,action,details){
  if(!supabaseClient||!currentUser||!projectId)return;
@@ -67,7 +81,7 @@ async function recordActivity(projectId,action,details){
  if(error)console.warn('Project activity was not recorded:',error.message);
 }
 window.addEventListener('landsetu:authenticated',async event=>{currentUser=event.detail?.user||null;profileData=event.detail?.profile||null;supabaseClient=window.landsetuSupabase||null;await loadProjects();});
-window.addEventListener('landsetu:signedout',()=>{currentUser=null;profileData=null;projects=[];render();});
+window.addEventListener('landsetu:signedout',()=>{currentUser=null;profileData=null;projects=[];projectAssignments=new Set();managerProfiles=[];profileDirectory=[];render();});
 function statCards(items=projects){
  const total=items.length,onTrack=items.filter(p=>p.status==='On Track'||p.status==='Completed').length;
  const atRisk=items.filter(p=>p.status==='At Risk'||p.risk==='High'||p.risk==='Critical').length;
@@ -88,7 +102,7 @@ function dashboard(){
  return `<div class="hero"><div><h1>LandSetu</h1><p>Predict · Plan · Prevent</p></div><div class="hero-art">🏛️</div></div>${statCards()}<div class="dashboard-grid"><div class="panel"><h3><span class="mini">♧</span>Project Risk by State</h3>${states.length?'<div class="state-list">'+states.map(x=>`<div class="state-row"><span>${x.state} <small>(${x.count})</small></span><div class="bar"><i style="width:${x.score}%"></i></div><b>${x.score}%</b></div>`).join('')+'</div>':'<p style="color:#657087">Add projects to see state-level risk summaries.</p>'}</div><div class="panel"><h3>▥　Recent Projects <a href="#" onclick="go('projects');return false" style="float:right;color:#1557c0;font-size:15px;text-decoration:none">View All →</a></h3>${recentRows()}</div></div>`
 }
 function filtered(){return projects.filter(p=>(!filters.q||(p.name+' '+p.id).toLowerCase().includes(filters.q.toLowerCase()))&&(!filters.state||p.state===filters.state)&&(!filters.district||p.district===filters.district)&&(!filters.status||p.status===filters.status)&&(!filters.risk||p.risk===filters.risk))}
-function projectTable(){let all=filtered(),rows=all.slice((pageNo-1)*5,pageNo*5);return `<div class="page-head"><div><h1>Projects</h1><p>Manage and track all land acquisition projects</p></div><button class="primary" id="addProject">＋ Add Project</button></div>${statCards()}<div class="filters"><input id="projectSearch" placeholder="⌕  Search by project name or ID..." value="${filters.q}"><select id="stateFilter"><option value="">All States</option>${[...new Set(projects.map(p=>p.state))].map(s=>`<option ${filters.state===s?'selected':''}>${s}</option>`).join('')}</select><select id="districtFilter"><option value="">All Districts</option>${[...new Set(projects.map(p=>p.district))].map(s=>`<option ${filters.district===s?'selected':''}>${s}</option>`).join('')}</select><select id="statusFilter"><option value="">All Status</option>${['On Track','In Progress','At Risk','Completed','On Hold'].map(s=>`<option ${filters.status===s?'selected':''}>${s}</option>`).join('')}</select><select id="riskFilter"><option value="">All Risk Level</option>${['Low','Medium','High','Critical'].map(s=>`<option ${filters.risk===s?'selected':''}>${s}</option>`).join('')}</select><button class="reset" id="reset">⟳ Reset</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Project Name</th><th>State</th><th>District</th><th>Status</th><th>Risk Level</th><th>Progress</th><th>Expected Date</th><th>Actions</th></tr></thead><tbody>${rows.map((p,i)=>`<tr><td>${(pageNo-1)*5+i+1}</td><td><strong>${p.name}</strong><small>${p.id}</small></td><td>${p.state}</td><td>${p.district}</td><td><span class="status ${statusClass(p.status)}">${p.status}</span></td><td><span class="status ${p.risk==='High'||p.risk==='Critical'?'risk':p.risk==='Medium'?'medium':'track'}">${p.risk}</span></td><td>${p.progress}%<div class="progress"><i style="width:${p.progress}%"></i></div></td><td>▦　${p.date}</td><td><button class="view" onclick="viewProject('${p.id}')">Edit</button>　<button class="view" onclick="removeProject('${p.dbId}')" title="Delete">Delete</button></td></tr>`).join('')||'<tr><td colspan="9" style="text-align:center;padding:35px">No projects match your filters.</td></tr>'}</tbody></table><div class="table-foot"><span>Showing ${all.length?((pageNo-1)*5+1):0}–${Math.min(pageNo*5,all.length)} of ${all.length} projects</span><div class="pages"><button onclick="changePage(-1)">‹</button><button class="active">${pageNo}</button><button onclick="changePage(1)">${pageNo+1}</button><button onclick="changePage(1)">›</button></div></div></div>`}
+function projectTable(){let all=filtered(),rows=all.slice((pageNo-1)*5,pageNo*5);return `<div class="page-head"><div><h1>Projects</h1><p>Projects visible to your account and assigned region</p></div>${canCreateProjects()?'<button class="primary" id="addProject">＋ Add Project</button>':''}</div>${statCards()}<div class="filters"><input id="projectSearch" placeholder="⌕  Search by project name or ID..." value="${filters.q}"><select id="stateFilter"><option value="">All States</option>${[...new Set(projects.map(p=>p.state))].map(s=>`<option ${filters.state===s?'selected':''}>${s}</option>`).join('')}</select><select id="districtFilter"><option value="">All Districts</option>${[...new Set(projects.map(p=>p.district))].map(s=>`<option ${filters.district===s?'selected':''}>${s}</option>`).join('')}</select><select id="statusFilter"><option value="">All Status</option>${['On Track','In Progress','At Risk','Completed','On Hold'].map(s=>`<option ${filters.status===s?'selected':''}>${s}</option>`).join('')}</select><select id="riskFilter"><option value="">All Risk Level</option>${['Low','Medium','High','Critical'].map(s=>`<option ${filters.risk===s?'selected':''}>${s}</option>`).join('')}</select><button class="reset" id="reset">⟳ Reset</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Project Name</th><th>State</th><th>District</th><th>Status</th><th>Risk Level</th><th>Progress</th><th>Expected Date</th><th>Actions</th></tr></thead><tbody>${rows.map((p,i)=>`<tr><td>${(pageNo-1)*5+i+1}</td><td><strong>${safeText(p.name)}</strong><small>${safeText(p.id)}</small></td><td>${safeText(p.state)}</td><td>${safeText(p.district)}</td><td><span class="status ${statusClass(p.status)}">${safeText(p.status)}</span></td><td><span class="status ${p.risk==='High'||p.risk==='Critical'?'risk':p.risk==='Medium'?'medium':'track'}">${safeText(p.risk)}</span></td><td>${p.progress}%<div class="progress"><i style="width:${p.progress}%"></i></div></td><td>▦　${safeText(p.date)}</td><td>${canEditProject(p)?`<button class="view" onclick="viewProject('${safeText(p.id)}')">Edit</button>`:''} ${canDeleteProject(p)?`<button class="view" onclick="removeProject('${safeText(p.dbId)}')" title="Delete">Delete</button>`:''}${!canEditProject(p)&&!canDeleteProject(p)?'<span>View only</span>':''}</td></tr>`).join('')||'<tr><td colspan="9" style="text-align:center;padding:35px">No projects match your filters.</td></tr>'}</tbody></table><div class="table-foot"><span>Showing ${all.length?((pageNo-1)*5+1):0}–${Math.min(pageNo*5,all.length)} of ${all.length} projects</span><div class="pages"><button onclick="changePage(-1)">‹</button><button class="active">${pageNo}</button><button onclick="changePage(1)">›</button></div></div></div>`}
 function insights(){
  const total=projects.length,high=projects.filter(p=>p.risk==='High'||p.risk==='Critical').length;
  const score=averageRisk(),states=stateRiskSummary(),distribution=riskCounts();
@@ -103,6 +117,22 @@ function insights(){
  const states=stateRiskSummary();
  return `<div class="page-head"><div><h1>LandSetu Map</h1><p>State-wise project risk summaries from your database</p></div></div>${statCards()}<div class="map-grid"><div class="panel map-panel"><h3>Project Coverage</h3><div class="india-wrap">${indiaSvg()}<div class="legend"><b>${projects.length} projects</b><span>Across ${states.length} states / regions</span><span>Average risk: ${averageRisk()}%</span><small>Illustrative India outline; state scores below are calculated from project records.</small></div></div></div><div><div class="panel"><h3>State Risk Overview</h3>${states.length?'<div class="state-list">'+states.map(x=>`<div class="state-row"><span>${x.state} <small>(${x.count})</small></span><div class="bar"><i style="width:${x.score}%"></i></div><b>${x.score}%</b></div>`).join('')+'</div>':'<p style="color:#657087">No project records yet. Add projects to populate this view.</p>'}</div><div class="panel" style="margin-top:16px"><h3>Risk Summary</h3><div class="keylist">${riskCounts().map(x=>`<div>${x.level}: <b>${x.count}</b> project(s)</div>`).join('')}</div></div></div></div>`
 }
+
+function usersPage(){
+ const roles=['national_admin','state_admin','project_manager','analyst','viewer'];
+ return `<div class="page-head"><div><h1>User Management</h1><p>Assign roles and state-level access for LandSetu accounts</p></div></div><div class="panel"><p style="color:#657087">Only existing registered profiles are listed. New accounts must first sign up through the secure login screen.</p><div class="table-wrap"><table class="data-table"><thead><tr><th>User</th><th>Email</th><th>Role</th><th>Assigned state</th><th>Action</th></tr></thead><tbody>${profileDirectory.map(u=>`<tr><td><strong>${safeText(u.full_name||'Unnamed user')}</strong></td><td>${safeText(u.email||'—')}</td><td><select data-user-role="${u.id}">${roles.map(r=>`<option value="${r}" ${u.role===r?'selected':''}>${roleLabel(r)}</option>`).join('')}</select></td><td><input data-user-state="${u.id}" value="${safeText(u.assigned_state||'')}" placeholder="e.g. Delhi"></td><td><button class="view" data-save-user="${u.id}">Save access</button></td></tr>`).join('')||'<tr><td colspan="5">No registered profiles found.</td></tr>'}</tbody></table></div></div>`;
+}
+function bindUsers(){
+ document.querySelectorAll('[data-save-user]').forEach(button=>button.addEventListener('click',async()=>{
+  const id=button.dataset.saveUser,roleValue=document.querySelector('[data-user-role="'+id+'"]').value,stateValue=document.querySelector('[data-user-state="'+id+'"]').value.trim();
+  if(roleValue==='state_admin'&&!stateValue)return toast('State Admin accounts require an assigned state.');
+  button.disabled=true;button.textContent='Saving…';
+  const {error}=await supabaseClient.rpc('admin_set_user_role',{p_user_id:id,p_role:roleValue,p_assigned_state:stateValue||null});
+  if(error){button.disabled=false;button.textContent='Save access';return toast('Could not update access: '+error.message);}
+  toast('User access updated');await loadProjects();
+ }));
+}
+
 function reports(){
  const high=projects.filter(p=>p.risk==='High'||p.risk==='Critical').length;
  const states=new Set(projects.map(p=>p.state).filter(Boolean)).size;
@@ -140,24 +170,26 @@ function bindSettings(){
   }catch(error){toast('Could not save profile: '+error.message);button.disabled=false;button.textContent='Save Profile';}
  });
 }
-function render(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#content').innerHTML=({dashboard,projects:projectTable,insights,map:mapPage,reports,settings}[page])();if(page==='projects')bindProjectFilters();if(page==='projects')$('#addProject').onclick=openModal;if(page==='settings')bindSettings();}
-function go(p){page=p;render();window.scrollTo(0,0)}
+function render(){if(!pageAllowed(page))page='dashboard';document.querySelectorAll('.nav button').forEach(b=>{b.classList.toggle('active',b.dataset.page===page);b.hidden=!pageAllowed(b.dataset.page)});$('#content').innerHTML=({dashboard,projects:projectTable,insights,map:mapPage,reports,settings,users:usersPage}[page])();if(page==='projects')bindProjectFilters();if(page==='projects'&&$('#addProject'))$('#addProject').onclick=()=>openModal();if(page==='settings')bindSettings();if(page==='users')bindUsers();}
+function go(p){if(!pageAllowed(p))return toast('Your account does not have permission to open this section.');page=p;render();window.scrollTo(0,0)}
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.page)));
 function bindProjectFilters(){[['projectSearch','q'],['stateFilter','state'],['districtFilter','district'],['statusFilter','status'],['riskFilter','risk']].forEach(([id,k])=>$('#'+id).addEventListener('input',e=>{filters[k]=e.target.value;pageNo=1;const pos=window.scrollY;render();window.scrollTo(0,pos)}));$('#reset').onclick=()=>{filters={q:'',state:'',district:'',status:'',risk:''};pageNo=1;render()}}
 function changePage(n){pageNo=Math.max(1,Math.min(Math.ceil(filtered().length/5)||1,pageNo+n));render()}
 function openModal(project=null){
+ if(!canCreateProjects()||(project&&!canEditProject(project)))return toast('You do not have permission to edit this project.');
  const form=$('#projectForm');form.reset();
  form.elements.recordId.value=project?.dbId||'';form.elements.name.value=project?.name||'';form.elements.id.value=project?.id||'';
  form.elements.state.value=project?.state||'';form.elements.district.value=project?.district||'';
  form.elements.status.value=project?.status||'In Progress';form.elements.risk.value=project?.risk||'Low';
  form.elements.progress.value=project?.progress??0;form.elements.date.value=project?.dateValue||'';
+ const managerField=$('#managerAssignField'),managerSelect=$('#managerSelect');managerField.hidden=!['national_admin','state_admin'].includes(currentRole());managerSelect.innerHTML='<option value="">Unassigned</option>'+managerProfiles.map(m=>'<option value="'+safeText(m.id)+'">'+safeText(m.full_name||m.email||'Project Manager')+'</option>').join('');
  $('#modal h2').textContent=project?'Edit Project':'Add New Project';
  $('#projectForm button[type="submit"]').textContent=project?'Save Changes':'Save Project';$('#modal').classList.add('show');
 }
 $('#cancel').onclick=()=>$('#modal').classList.remove('show');
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')$('#modal').classList.remove('show')});
 $('#projectForm').addEventListener('submit',async e=>{
- e.preventDefault();if(!supabaseClient||!currentUser)return toast('Please sign in again before saving a project.');
+ e.preventDefault();if(!supabaseClient||!currentUser)return toast('Please sign in again before saving a project.');if(!canCreateProjects())return toast('Your role cannot create projects.');
  const form=e.currentTarget,d=Object.fromEntries(new FormData(form));
  if(d.id&&!/^[A-Za-z0-9_-]{1,40}$/.test(d.id))return toast('Project ID can contain only letters, numbers, hyphens and underscores.');
  const payload={project_code:d.id||null,name:d.name.trim(),state:d.state.trim(),district:d.district.trim(),status:d.status,risk_level:d.risk,progress:Number(d.progress)||0,expected_completion:d.date?d.date+'-01':null};
@@ -166,6 +198,8 @@ $('#projectForm').addEventListener('submit',async e=>{
   let result;if(d.recordId){result=await supabaseClient.from('projects').update(payload).eq('id',d.recordId).select('*').single();}
   else{result=await supabaseClient.from('projects').insert({...payload,created_by:currentUser.id}).select('*').single();}
   if(result.error)throw result.error;
+  if(!d.recordId&&currentRole()==='project_manager'){const assigned=await supabaseClient.from('project_assignments').insert({project_id:result.data.id,user_id:currentUser.id,assigned_by:currentUser.id});if(assigned.error)throw assigned.error;}
+  if(['national_admin','state_admin'].includes(currentRole())&&d.manager_id){const removed=await supabaseClient.from('project_assignments').delete().eq('project_id',result.data.id);if(removed.error)throw removed.error;const assigned=await supabaseClient.from('project_assignments').insert({project_id:result.data.id,user_id:d.manager_id,assigned_by:currentUser.id});if(assigned.error)throw assigned.error;}
   await recordActivity(result.data.id,d.recordId?'updated':'created',d.recordId?'Project details updated.':'Project created.');
   $('#modal').classList.remove('show');form.reset();filters={q:'',state:'',district:'',status:'',risk:''};pageNo=1;await loadProjects();toast(d.recordId?'Project updated successfully':'Project added successfully');
  }catch(error){toast('Could not save project: '+(error.message||'Unknown error'));}
@@ -173,7 +207,7 @@ $('#projectForm').addEventListener('submit',async e=>{
 });
 function viewProject(code){const p=projects.find(x=>x.id===code);if(p)openModal(p);}
 async function removeProject(id){
- const p=projects.find(x=>x.dbId===id);if(!p||!confirm('Permanently delete "'+p.name+'" from LandSetu?'))return;
+ const p=projects.find(x=>x.dbId===id);if(!p||!canDeleteProject(p))return toast('You do not have permission to delete this project.');if(!confirm('Permanently delete "'+p.name+'" from LandSetu?'))return;
  const {error}=await supabaseClient.from('projects').delete().eq('id',id);if(error)return toast('Could not delete project: '+error.message);
  projects=projects.filter(x=>x.dbId!==id);render();toast('Project deleted');
 }
