@@ -49,6 +49,21 @@ async function loadAiPredictions() {
   const {data:feedback,error:feedbackError}=await supabaseClient.from('project_feedback').select('id,project_id,actual_status,actual_progress,actual_delay_days,prediction_level,prediction_score,prediction_method,verified,recorded_at,notes').order('recorded_at',{ascending:false}).limit(100);
   aiFeedbackRows=feedbackError?[]:(feedback||[]);
 }
+
+async function aiRecordOutcome(projectId) {
+  const p=aiPredictionRows.find(x=>x.id===projectId);if(!p)return;
+  const actual_status=window.prompt('Actual status: On Track, In Progress, At Risk, Completed, On Hold',p.status||'In Progress');if(actual_status===null)return;
+  if(!['On Track','In Progress','At Risk','Completed','On Hold'].includes(actual_status))return toast('Choose a valid status.');
+  const progress=Number(window.prompt('Actual progress (0–100):',String(p.progress||0)));
+  const delay=Number(window.prompt('Actual delay in days:', '0'));
+  if(!Number.isFinite(progress)||progress<0||progress>100||!Number.isInteger(delay)||delay<0)return toast('Enter valid progress and delay values.');
+  const notes=window.prompt('Outcome notes (optional):','')||'';
+  const prediction=aiPredict(p);
+  const {error}=await supabaseClient.from('project_feedback').insert({project_id:projectId,user_id:currentUser.id,actual_status,actual_progress:progress,actual_delay_days:delay,prediction_level:prediction.level,prediction_score:prediction.observations?prediction.score:null,prediction_method:AI_PREDICTION_METHOD,notes:notes.trim()||null,verified:false});
+  if(error)return toast('Could not save feedback: '+error.message);
+  toast('Officer feedback recorded.');await loadAiPredictions();render();
+}
+
 function aiPredictionPage() {
   const scored=aiPredictionRows.map(p=>({p,pred:aiPredict(p)})).sort((a,b)=>b.pred.score-a.pred.score);
   const usable=scored.filter(x=>x.pred.observations>0).length;
@@ -60,7 +75,7 @@ function aiPredictionPage() {
     const factors=pred.factors.length?pred.factors.slice(0,4).map(f=>'<li>'+aiEscape(f.name)+' (+'+f.points+') — '+aiEscape(f.detail)+'</li>').join(''):'<li>No positive risk factors in entered fields.</li>';
     const actions=aiSuggestedActions(p,pred).map(x=>'<li>'+aiEscape(x)+'</li>').join('');
     const source=aiEscape(p.source_name||'Source not recorded')+' · '+(p.source_verified?'verified':'unverified');
-    const edit=aiCanUpdate()?'<button class="view" data-ai-edit="'+aiEscape(p.id)+'">Update inputs</button>':'View only';
+    const edit=aiCanUpdate()?'<button class="view" data-ai-edit="'+aiEscape(p.id)+'">Update inputs</button> <button class="view" onclick="aiRecordOutcome(\''+aiEscape(p.id)+'\')">Record outcome</button>':'View only';
     return '<tr><td><b>'+aiEscape(p.name)+'</b><small>'+aiEscape(p.state)+' · '+aiEscape(p.district)+' · '+aiEscape(p.acquisition_stage||'Stage not recorded')+'</small></td><td><span class="status '+cls+'">'+pred.level+'</span><small>'+(pred.observations?pred.score+' / 100 screening score':'No usable indicator data')+'</small></td><td><ul style="margin:0;padding-left:18px;white-space:normal">'+factors+'</ul></td><td><ul style="margin:0;padding-left:18px;white-space:normal">'+actions+'</ul></td><td>'+source+'<small>'+(p.source_updated_at||'')+'</small></td><td>'+edit+'</td></tr>';
   }).join('');
   const options=aiPredictionRows.map(p=>'<option value="'+aiEscape(p.id)+'">'+aiEscape(p.name)+' — '+aiEscape(p.state)+'</option>').join('');
