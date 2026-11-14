@@ -108,3 +108,114 @@ document.querySelector('[data-page="ai-predictions"]')?.addEventListener('click'
   if(!pageAllowed('ai-predictions'))return;
   page='ai-predictions';render();window.scrollTo(0,0);
 });
+
+
+// Live project-level assessment. This is a transparent rule-based index,
+// not a trained ML probability model and not based on contributor submissions.
+let aiProjectRows=[];
+let aiProjectLoadState='idle';
+let aiProjectLoadError='';
+let aiProjectLoadToken=0;
+
+function aiProjectAssessment(p) {
+  const reasons=[];
+  let score=0;
+  let available=0;
+  const fields=['status','progress','approval_delay_days','dispute_count','compensation_completion','possession_progress','rehabilitation_progress','historical_department_delay_days','expected_completion'];
+  fields.forEach(k=>{if(p[k]!==null&&p[k]!==undefined&&p[k]!=='')available++;});
+  const add=(points,reason)=>{score+=points;reasons.push(reason);};
+  if(p.status==='Completed') return {score:0,level:'Low',coverage:available,total:fields.length,reasons:['Project is marked completed.'],action:'Keep closure records and final compliance evidence up to date.'};
+  if(p.status==='On Hold') add(28,'Project is currently on hold.');
+  else if(p.status==='At Risk') add(20,'Project status is marked at risk.');
+  else if(p.status==='In Progress') add(6,'Project is still in progress.');
+  if(Number.isFinite(Number(p.approval_delay_days))&&p.approval_delay_days!==null){
+    const d=Number(p.approval_delay_days);
+    if(d>90)add(20,'Approval delay exceeds 90 days.');
+    else if(d>30)add(12,'Approval delay exceeds 30 days.');
+    else if(d>0)add(5,'Approval delay has been recorded.');
+  }
+  if(Number.isFinite(Number(p.dispute_count))&&p.dispute_count!==null){
+    const d=Number(p.dispute_count);
+    if(d>=10)add(18,'10 or more disputes are recorded.');
+    else if(d>=3)add(12,'Multiple land disputes are recorded.');
+    else if(d>0)add(5,'At least one land dispute is recorded.');
+  }
+  for(const [key,label] of [['compensation_completion','Compensation'],['possession_progress','Possession'],['rehabilitation_progress','Rehabilitation']]){
+    if(p[key]!==null&&p[key]!==undefined&&p[key]!==''){
+      const v=Math.max(0,Math.min(100,Number(p[key])));
+      if(v<30)add(12,label+' progress is below 30%.');
+      else if(v<60)add(7,label+' progress is below 60%.');
+    }
+  }
+  if(p.historical_department_delay_days!==null&&p.historical_department_delay_days!==undefined){
+    const d=Number(p.historical_department_delay_days);
+    if(d>90)add(10,'Historical departmental delays exceed 90 days.');
+    else if(d>30)add(5,'Historical departmental delays exceed 30 days.');
+  }
+  if(p.expected_completion){
+    const due=new Date(p.expected_completion+'T00:00:00');
+    const now=new Date(); now.setHours(0,0,0,0);
+    const days=Math.ceil((due-now)/86400000);
+    if(days<0 && Number(p.progress||0)<100)add(18,'Expected completion date has passed while progress is below 100%.');
+    else if(days<=90 && Number(p.progress||0)<70)add(8,'Completion is due within 90 days but progress is below 70%.');
+  }
+  score=Math.max(0,Math.min(100,Math.round(score)));
+  const level=score>=75?'Critical':score>=50?'High':score>=25?'Medium':'Low';
+  let action='Continue routine monitoring and keep project records current.';
+  if(reasons.some(x=>x.includes('dispute')))action='Review pending disputes and assign a resolution owner with target dates.';
+  else if(reasons.some(x=>x.includes('Compensation')))action='Review compensation cases and prioritise pending payments.';
+  else if(reasons.some(x=>x.includes('Approval')))action='Escalate pending approvals and record the responsible department.';
+  else if(reasons.some(x=>x.includes('Rehabilitation')||x.includes('Possession')))action='Review possession and rehabilitation milestones with the field team.';
+  else if(score>=25)action='Review the project schedule and record the causes of delay.';
+  return {score,level,coverage:available,total:fields.length,reasons:reasons.length?reasons:['No major risk trigger found in the available fields.'],action};
+}
+async function aiFetchProjectRows(){
+  const token=++aiProjectLoadToken;
+  aiProjectLoadState='loading';aiProjectLoadError='';render();
+  try{
+    if(!supabaseClient||!currentUser)throw new Error('Please sign in again to load project records.');
+    const {data,error}=await supabaseClient.from('projects')
+      .select('id,project_code,name,state,district,status,progress,risk_level,expected_completion,acquisition_stage,approval_delay_days,dispute_count,compensation_completion,possession_progress,rehabilitation_progress,historical_department_delay_days,source_verified,source_updated_at')
+      .order('created_at',{ascending:false});
+    if(error)throw error;
+    if(token!==aiProjectLoadToken)return;
+    aiProjectRows=data||[];
+    aiProjectLoadState='ready';
+  }catch(error){
+    if(token!==aiProjectLoadToken)return;
+    aiProjectLoadError=error?.message||'Could not load project data.';
+    aiProjectLoadState='error';
+  }
+  if(page==='ai-predictions')render();
+}
+const aiHistoricalPredictionPage=aiPredictionPage;
+aiPredictionPage=function(){
+  const historical=aiHistoricalPredictionPage();
+  let live='';
+  if(aiProjectLoadState==='loading'||aiProjectLoadState==='idle'){
+    live='<div class="panel" style="margin:16px 0"><h3>Live project risk assessment</h3><p style="color:#657087">Loading project records from Supabase…</p></div>';
+  }else if(aiProjectLoadState==='error'){
+    live='<div class="panel" style="margin:16px 0;border-left:4px solid #c65d5d"><h3>Could not load live project records</h3><p>'+aiEscape(aiProjectLoadError)+'</p><button class="secondary" id="aiProjectRefresh">Try again</button></div>';
+  }else{
+    const rows=aiProjectRows.map(p=>({p,a:aiProjectAssessment(p)}));
+    const counts={Critical:0,High:0,Medium:0,Low:0};
+    rows.forEach(x=>counts[x.a.level]++);
+    const cards=rows.length?rows.map(({p,a})=>{
+      const reasons=a.reasons.map(r=>'<li>'+aiEscape(r)+'</li>').join('');
+      const coverage=a.coverage+'/'+a.total;
+      return '<article class="panel" style="min-width:0"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><h3 style="margin:0 0 4px">'+aiEscape(p.name||p.project_code||'Unnamed project')+'</h3><p style="margin:0;color:#657087;font-size:13px">'+aiEscape([p.district,p.state].filter(Boolean).join(', ')||'Location not set')+'</p></div><span class="status '+(a.level==='Critical'||a.level==='High'?'risk':a.level==='Low'?'track':'medium')+'">'+a.level+' risk</span></div><div style="display:flex;align-items:baseline;gap:8px;margin:18px 0 4px"><strong style="font-size:34px">'+a.score+'</strong><span style="color:#657087">/100 risk index</span></div><div style="height:8px;background:#edf1f6;border-radius:99px;overflow:hidden"><div style="height:100%;width:'+a.score+'%;background:'+(a.score>=75?'#bd5b54':a.score>=50?'#d18b43':a.score>=25?'#c4a34d':'#4e9a78')+'"></div></div><p style="font-size:12px;color:#657087;margin:8px 0">Input coverage: '+coverage+' fields · '+(p.source_verified?'Source marked verified':'Source not verified')+'</p><b style="font-size:13px">Factors considered</b><ul style="margin:6px 0 12px;padding-left:18px;color:#596579;font-size:13px;line-height:1.6">'+reasons+'</ul><div style="padding:10px;background:#f5f8fc;border-radius:9px;font-size:13px"><b>Suggested review:</b> '+aiEscape(a.action)+'</div></article>';
+    }).join(''):'<div class="panel"><h3>No project records found</h3><p style="color:#657087">Add projects to LandSetu to generate project-level assessments.</p></div>';
+    live='<section style="margin:16px 0"><div class="page-head" style="margin-bottom:12px"><div><h2 style="margin:0">Live project risk assessment</h2><p style="margin:5px 0 0;color:#657087">Calculated from current project records in Supabase — independent of contributor predictions.</p></div><button class="secondary" id="aiProjectRefresh">Refresh project data</button></div><div class="stats"><div class="stat"><div><strong>'+rows.length+'</strong><span>Projects assessed</span></div></div><div class="stat"><div><strong>'+counts.Critical+'</strong><span>Critical</span></div></div><div class="stat"><div><strong>'+counts.High+'</strong><span>High</span></div></div><div class="stat"><div><strong>'+counts.Medium+'</strong><span>Medium</span></div></div></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;margin-top:14px">'+cards+'</div><p style="font-size:12px;color:#748095;margin-top:12px">Important: this is an explainable rule-based risk index, not a machine-learning probability or a validated prediction. Scores depend on the completeness and accuracy of project records; missing fields are not treated as zero risk.</p></section>';
+  }
+  return historical.replace('<div class="panel" style="margin-bottom:16px;border-left:4px solid #d18b43">',live+'<div class="panel" style="margin-bottom:16px;border-left:4px solid #d18b43">');
+};
+const aiPreviousBindPredictionPage=aiBindPredictionPage;
+aiBindPredictionPage=function(){
+  aiPreviousBindPredictionPage();
+  document.getElementById('aiProjectRefresh')?.addEventListener('click',aiFetchProjectRows);
+};
+const aiRenderBeforeLiveProjects=render;
+render=function(){
+  aiRenderBeforeLiveProjects();
+  if(page==='ai-predictions'&&aiProjectLoadState==='idle')aiFetchProjectRows();
+};
