@@ -1,117 +1,110 @@
-/* LandSetu AI Predictions integration.
- * Adapted from the contributor BhoomiPredict baseline; uses LandSetu auth and project RLS.
- * This is a transparent heuristic, not a trained or calibrated ML model.
+/* LandSetu independent land-conflict trend model.
+ * Source: user-provided landportal-LCW-LCI-NOCONF.csv.
+ * No contributor model, contributor scores, or contributor-submitted inputs are used.
+ * The source ends in 2018, so projections are historical research estimates only.
  */
-let aiPredictionRows = [];
-let aiFeedbackRows = [];
-const AI_PREDICTION_METHOD = 'rule-based-v1';
+const LAND_CONFLICT_DATA = [
+  [1912,1],[1916,1],[1921,1],[1938,1],[1941,1],[1946,1],[1950,2],[1952,2],[1955,1],[1956,1],
+  [1959,1],[1960,2],[1962,2],[1967,1],[1970,4],[1972,3],[1973,2],[1974,2],[1975,1],[1976,2],
+  [1978,5],[1979,2],[1980,7],[1981,1],[1982,1],[1983,3],[1984,1],[1985,2],[1987,4],[1988,1],
+  [1989,3],[1990,2],[1991,3],[1992,6],[1993,2],[1994,6],[1995,3],[1996,3],[1997,4],[1998,4],
+  [1999,1],[2000,7],[2001,7],[2002,8],[2003,9],[2004,6],[2005,12],[2006,15],[2007,23],[2008,28],
+  [2009,31],[2010,18],[2011,27],[2012,26],[2013,28],[2014,33],[2015,67],[2016,69],[2017,54],[2018,25]
+].map(([year,value])=>({year,value}));
+
+const AI_MODEL_NAME = 'OLS linear trend · latest 10 observations';
+const AI_TRAINING_WINDOW = 10;
+let aiForecastHorizon = 5;
 
 function aiEscape(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-function aiCanUpdate() {
-  return ['national_admin','state_admin','project_manager'].includes(currentRole());
+function aiFitTrend(rows) {
+  const sample=rows.slice(-AI_TRAINING_WINDOW);
+  const origin=sample[0].year;
+  const xs=sample.map(r=>r.year-origin), ys=sample.map(r=>r.value);
+  const meanX=xs.reduce((a,b)=>a+b,0)/xs.length, meanY=ys.reduce((a,b)=>a+b,0)/ys.length;
+  const denom=xs.reduce((s,x)=>s+(x-meanX)**2,0);
+  const slope=denom?xs.reduce((s,x,i)=>s+(x-meanX)*(ys[i]-meanY),0)/denom:0;
+  const intercept=meanY-slope*meanX;
+  return {slope,intercept,origin,trainedThrough:sample[sample.length-1].year,sampleSize:sample.length,
+    predict:year=>Math.max(0,slope*(year-origin)+intercept)};
 }
-function aiPredict(project) {
-  const factors = [];
-  let observations = 0;
-  const add = (name, points, detail) => { if (points > 0) factors.push({name,points,detail}); };
-  if (project.approval_delay_days != null) { observations++; add('Approval delay',Math.min(25,Math.round(project.approval_delay_days/4),),project.approval_delay_days+' day(s) recorded'); }
-  if (project.dispute_count != null) { observations++; add('Disputes / objections',Math.min(20,project.dispute_count*5),project.dispute_count+' open dispute(s) recorded'); }
-  if (project.compensation_completion != null) { observations++; add('Compensation backlog',Math.round((100-project.compensation_completion)*0.15),project.compensation_completion+'% compensation completion'); }
-  if (project.possession_progress != null) { observations++; add('Possession backlog',Math.round((100-project.possession_progress)*0.12),project.possession_progress+'% possession progress'); }
-  if (project.rehabilitation_progress != null) { observations++; add('Rehabilitation backlog',Math.round((100-project.rehabilitation_progress)*0.10),project.rehabilitation_progress+'% rehabilitation progress'); }
-  if (project.historical_department_delay_days != null) { observations++; add('Historical department delays',Math.min(15,Math.round(project.historical_department_delay_days/10)),project.historical_department_delay_days+' historical delay day(s) entered'); }
-  if (project.expected_completion && project.status !== 'Completed') {
-    observations++;
-    if (project.expected_completion < new Date().toISOString().slice(0,10)) add('Past expected completion',20,'Expected completion date has passed');
+function aiBacktest(rows) {
+  const start=Math.max(AI_TRAINING_WINDOW,rows.length-10), errors=[], naiveErrors=[];
+  for(let i=start;i<rows.length;i++){
+    const train=rows.slice(Math.max(0,i-AI_TRAINING_WINDOW),i);
+    const model=aiFitTrend(train);
+    errors.push(Math.abs(rows[i].value-model.predict(rows[i].year)));
+    naiveErrors.push(Math.abs(rows[i].value-rows[i-1].value));
   }
-  const score = Math.min(100,factors.reduce((sum,f)=>sum+f.points,0));
-  const level = !observations ? 'Insufficient data' : score>=70?'Critical':score>=50?'High':score>=25?'Medium':'Low';
-  return {score,level,observations,factors:factors.sort((a,b)=>b.points-a.points)};
+  const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
+  return {trendMae:mean(errors),naiveMae:mean(naiveErrors),testCount:errors.length};
 }
-function aiSuggestedActions(p,prediction) {
-  const a=[];
-  if(prediction.level==='Insufficient data') a.push('Verify source records and enter available acquisition indicators.');
-  if(Number(p.approval_delay_days)>0) a.push('Ask the approving department for a dated resolution plan.');
-  if(Number(p.dispute_count)>0) a.push('Triage open objections and schedule documented resolution meetings.');
-  if(p.compensation_completion!=null&&Number(p.compensation_completion)<100) a.push('Reconcile award and payment records; prioritize eligible pending cases.');
-  if(p.possession_progress!=null&&Number(p.possession_progress)<100) a.push('Validate parcel-wise possession status and record constraints.');
-  if(p.rehabilitation_progress!=null&&Number(p.rehabilitation_progress)<100) a.push('Review affected-family cases and agree rehabilitation milestones.');
-  if(!a.length&&prediction.score<25) a.push('Continue routine monitoring and update source records at the next review.');
-  return a.slice(0,3);
+function aiForecast(rows,horizon) {
+  const fit=aiFitTrend(rows),last=rows[rows.length-1];
+  return Array.from({length:horizon},(_,i)=>{
+    const year=last.year+i+1;
+    return {year,value:Math.round(fit.predict(year))};
+  });
 }
-async function loadAiPredictions() {
-  if(!supabaseClient||!currentUser) return;
-  const {data,error}=await supabaseClient.from('projects').select('id,project_code,name,state,district,status,progress,expected_completion,acquisition_stage,compensation_completion,approval_delay_days,dispute_count,possession_progress,rehabilitation_progress,historical_department_delay_days,source_name,source_record_id,source_verified,source_updated_at').order('created_at',{ascending:false});
-  if(error){toast('Could not load AI prediction inputs: '+error.message);aiPredictionRows=[];return;}
-  aiPredictionRows=data||[];
-  const {data:feedback,error:feedbackError}=await supabaseClient.from('project_feedback').select('id,project_id,actual_status,actual_progress,actual_delay_days,prediction_level,prediction_score,prediction_method,verified,recorded_at,notes').order('recorded_at',{ascending:false}).limit(100);
-  aiFeedbackRows=feedbackError?[]:(feedback||[]);
+function aiTrendChart(rows,forecast) {
+  const W=920,H=300,L=54,R=20,T=18,B=38, minYear=1912,maxYear=forecast[forecast.length-1]?.year||2018;
+  const maxValue=Math.max(80,...rows.map(x=>x.value),...forecast.map(x=>x.value));
+  const x=year=>L+(year-minYear)/(maxYear-minYear)*(W-L-R);
+  const y=value=>H-B-(value/maxValue)*(H-T-B);
+  const points=rows.map(r=>x(r.year)+','+y(r.value)).join(' ');
+  const fpoints=[{year:rows[rows.length-1].year,value:rows[rows.length-1].value},...forecast].map(r=>x(r.year)+','+y(r.value)).join(' ');
+  const grid=[0,20,40,60,80].map(v=>'<line x1="'+L+'" y1="'+y(v)+'" x2="'+(W-R)+'" y2="'+y(v)+'" stroke="#e8edf4"/><text x="'+(L-12)+'" y="'+(y(v)+4)+'" text-anchor="end" fill="#758197" font-size="11">'+v+'</text>').join('');
+  const dots=rows.map(r=>'<circle cx="'+x(r.year)+'" cy="'+y(r.value)+'" r="2.7" fill="#557da8"/>').join('');
+  return '<div style="overflow-x:auto"><svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Reported land conflicts by year and historical trend projection" style="width:100%;min-width:580px;height:auto;display:block">'+grid+
+    '<polyline points="'+points+'" fill="none" stroke="#557da8" stroke-width="2.2" stroke-linejoin="round"/>'+dots+
+    '<polyline points="'+fpoints+'" fill="none" stroke="#d18b43" stroke-width="3" stroke-dasharray="7 5" stroke-linejoin="round"/>'+
+    '<text x="'+L+'" y="'+(H-8)+'" fill="#758197" font-size="11">1912</text><text x="'+x(2000)+'" y="'+(H-8)+'" text-anchor="middle" fill="#758197" font-size="11">2000</text><text x="'+(W-R)+'" y="'+(H-8)+'" text-anchor="end" fill="#758197" font-size="11">'+maxYear+'</text></svg></div>'+
+    '<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;color:#667085;font-size:12px"><span>● Historical dataset</span><span style="color:#bd7b31">┄┄ Model projection</span></div>';
 }
-
-async function aiRecordOutcome(projectId) {
-  const p=aiPredictionRows.find(x=>x.id===projectId);if(!p)return;
-  const actual_status=window.prompt('Actual status: On Track, In Progress, At Risk, Completed, On Hold',p.status||'In Progress');if(actual_status===null)return;
-  if(!['On Track','In Progress','At Risk','Completed','On Hold'].includes(actual_status))return toast('Choose a valid status.');
-  const progress=Number(window.prompt('Actual progress (0–100):',String(p.progress||0)));
-  const delay=Number(window.prompt('Actual delay in days:', '0'));
-  if(!Number.isFinite(progress)||progress<0||progress>100||!Number.isInteger(delay)||delay<0)return toast('Enter valid progress and delay values.');
-  const notes=window.prompt('Outcome notes (optional):','')||'';
-  const prediction=aiPredict(p);
-  const {error}=await supabaseClient.from('project_feedback').insert({project_id:projectId,user_id:currentUser.id,actual_status,actual_progress:progress,actual_delay_days:delay,prediction_level:prediction.level,prediction_score:prediction.observations?prediction.score:null,prediction_method:AI_PREDICTION_METHOD,notes:notes.trim()||null,verified:false});
-  if(error)return toast('Could not save feedback: '+error.message);
-  toast('Officer feedback recorded.');await loadAiPredictions();render();
-}
-
 function aiPredictionPage() {
-  const scored=aiPredictionRows.map(p=>({p,pred:aiPredict(p)})).sort((a,b)=>b.pred.score-a.pred.score);
-  const usable=scored.filter(x=>x.pred.observations>0).length;
-  const high=scored.filter(x=>['High','Critical'].includes(x.pred.level)).length;
-  const verified=aiPredictionRows.filter(p=>p.source_verified).length;
-  const cards='<div class="stats"><div class="stat"><div class="stat-icon">◷</div><div><strong>'+usable+'/'+scored.length+'</strong><span>Projects with usable inputs</span></div></div><div class="stat"><div class="stat-icon red">!</div><div><strong>'+high+'</strong><span>High / critical flags</span></div></div><div class="stat"><div class="stat-icon green">✓</div><div><strong>'+verified+'</strong><span>Verified source records</span></div></div><div class="stat"><div class="stat-icon orange">ⓘ</div><div><strong>Baseline</strong><span>Rule-based · not ML</span></div></div></div>';
-  const rows=scored.map(({p,pred})=>{
-    const cls=['High','Critical'].includes(pred.level)?'risk':pred.level==='Medium'||pred.level==='Insufficient data'?'medium':'track';
-    const factors=pred.factors.length?pred.factors.slice(0,4).map(f=>'<li>'+aiEscape(f.name)+' (+'+f.points+') — '+aiEscape(f.detail)+'</li>').join(''):'<li>No positive risk factors in entered fields.</li>';
-    const actions=aiSuggestedActions(p,pred).map(x=>'<li>'+aiEscape(x)+'</li>').join('');
-    const source=aiEscape(p.source_name||'Source not recorded')+' · '+(p.source_verified?'verified':'unverified');
-    const edit=aiCanUpdate()?'<button class="view" data-ai-edit="'+aiEscape(p.id)+'">Update inputs</button> <button class="view" onclick="aiRecordOutcome(\''+aiEscape(p.id)+'\')">Record outcome</button>':'View only';
-    return '<tr><td><b>'+aiEscape(p.name)+'</b><small>'+aiEscape(p.state)+' · '+aiEscape(p.district)+' · '+aiEscape(p.acquisition_stage||'Stage not recorded')+'</small></td><td><span class="status '+cls+'">'+pred.level+'</span><small>'+(pred.observations?pred.score+' / 100 screening score':'No usable indicator data')+'</small></td><td><ul style="margin:0;padding-left:18px;white-space:normal">'+factors+'</ul></td><td><ul style="margin:0;padding-left:18px;white-space:normal">'+actions+'</ul></td><td>'+source+'<small>'+(p.source_updated_at||'')+'</small></td><td>'+edit+'</td></tr>';
-  }).join('');
-  const options=aiPredictionRows.map(p=>'<option value="'+aiEscape(p.id)+'">'+aiEscape(p.name)+' — '+aiEscape(p.state)+'</option>').join('');
-  const form=aiCanUpdate()?'<div class="panel" style="margin:18px 0"><h3>Update prediction inputs</h3><form id="aiInputForm" class="form-grid"><label>Project<select name="project_id" required><option value="">Select project</option>'+options+'</select></label><label>Acquisition stage<select name="acquisition_stage"><option>Planning</option><option>Notification</option><option>Valuation</option><option>Compensation</option><option>Possession</option><option>Rehabilitation</option><option>Completed</option></select></label><label>Compensation completion (%)<input name="compensation_completion" type="number" min="0" max="100" step="0.01"></label><label>Approval delay (days)<input name="approval_delay_days" type="number" min="0" step="1"></label><label>Disputes / objections<input name="dispute_count" type="number" min="0" step="1"></label><label>Possession progress (%)<input name="possession_progress" type="number" min="0" max="100" step="0.01"></label><label>Rehabilitation progress (%)<input name="rehabilitation_progress" type="number" min="0" max="100" step="0.01"></label><label>Historical department delay (days)<input name="historical_department_delay_days" type="number" min="0" step="1"></label><label>Source name<input name="source_name" maxlength="160"></label><label>Source record ID<input name="source_record_id" maxlength="120"></label><label>Source updated<input name="source_updated_at" type="date"></label><label><span>Source verified</span><input name="source_verified" type="checkbox"></label><div style="grid-column:1/-1"><button class="primary" type="submit">Save prediction inputs</button></div></form></div>':'';
-  const feedback=aiFeedbackRows.slice(0,10).map(f=>'<tr><td>'+aiEscape(f.recorded_at?new Date(f.recorded_at).toLocaleDateString('en-IN'):'')+'</td><td>'+aiEscape(aiPredictionRows.find(p=>p.id===f.project_id)?.name||'Project')+'</td><td>'+aiEscape(f.actual_status)+' · '+Number(f.actual_progress)+'%</td><td>'+Number(f.actual_delay_days)+' days</td><td>'+aiEscape(f.prediction_level||'—')+' / '+aiEscape(f.prediction_method||AI_PREDICTION_METHOD)+'</td><td>'+(f.verified?'Verified':'Unverified')+'</td></tr>').join('');
-  return '<div class="page-head"><div><h1>AI Predictions</h1><p>Project delay-risk screening, contributing factors and recommended actions</p></div><button class="secondary" id="aiRefresh">Refresh data</button></div><div class="panel" style="margin-bottom:16px"><b>Transparent screening baseline — not a trained machine-learning model.</b><p style="margin:6px 0 0;color:#657087">Scores are heuristic indicators from recorded project fields. They are not calibrated probabilities, official forecasts or guarantees. Missing inputs are not treated as zero. Verify source provenance before relying on results.</p></div>'+cards+form+'<div class="panel" style="margin-bottom:16px"><h3>Project risk screening and explanations</h3><div class="table-wrap"><table class="data-table" style="min-width:1120px"><thead><tr><th>Project</th><th>Risk</th><th>Contributing factors</th><th>Suggested actions</th><th>Source provenance</th><th>Inputs</th></tr></thead><tbody>'+(rows||'<tr><td colspan="6">No projects available.</td></tr>')+'</tbody></table></div></div><div class="panel"><h3>Recent officer feedback</h3><div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Project</th><th>Actual outcome</th><th>Actual delay</th><th>Saved baseline</th><th>Verification</th></tr></thead><tbody>'+(feedback||'<tr><td colspan="6">No feedback recorded yet.</td></tr>')+'</tbody></table></div></div>';
+  const first=LAND_CONFLICT_DATA[0],last=LAND_CONFLICT_DATA[LAND_CONFLICT_DATA.length-1];
+  const peak=LAND_CONFLICT_DATA.reduce((a,b)=>b.value>a.value?b:a,LAND_CONFLICT_DATA[0]);
+  const fit=aiFitTrend(LAND_CONFLICT_DATA),backtest=aiBacktest(LAND_CONFLICT_DATA);
+  const forecast=aiForecast(LAND_CONFLICT_DATA,aiForecastHorizon);
+  const next=forecast[0],end=forecast[forecast.length-1];
+  const forecastRows=forecast.map(r=>'<tr><td>'+r.year+'</td><td><b>'+r.value+'</b></td><td><span class="status medium">Trend estimate</span></td></tr>').join('');
+  const backtestText=backtest.trendMae==null?'Not available':backtest.trendMae.toFixed(1)+' events';
+  const naiveText=backtest.naiveMae==null?'Not available':backtest.naiveMae.toFixed(1)+' events';
+  return '<div class="page-head"><div><h1>AI Predictions</h1><p>Independent India land-conflict trend analysis from the supplied historical dataset</p></div><button class="secondary" id="aiRefresh">Recalculate</button></div>'+
+    '<div class="panel" style="margin-bottom:16px;border-left:4px solid #d18b43"><b>Research projection only — the source data ends in 2018.</b><p style="margin:6px 0 0;color:#657087">This model cannot provide a reliable current 2026 forecast or project-specific risk score. Upload recent observations before using it for current operational decisions.</p></div>'+
+    '<div class="stats"><div class="stat"><div class="stat-icon">▤</div><div><strong>'+LAND_CONFLICT_DATA.length+'</strong><span>Historical observations</span></div></div><div class="stat"><div class="stat-icon">◷</div><div><strong>'+first.year+'–'+last.year+'</strong><span>Dataset coverage</span></div></div><div class="stat"><div class="stat-icon red">↗</div><div><strong>'+peak.value+' · '+peak.year+'</strong><span>Highest recorded value</span></div></div><div class="stat"><div class="stat-icon green">◎</div><div><strong>'+last.value+'</strong><span>Last recorded value · 2018</span></div></div></div>'+
+    '<div class="panel" style="margin:16px 0"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><div><h3 style="margin:0">Historical trend and model projection</h3><p style="color:#657087;margin:5px 0 0">Reported number of land conflicts in India · '+AI_MODEL_NAME+'</p></div><label style="display:flex;gap:8px;align-items:center">Projection length <select id="aiHorizon" style="padding:8px;border:1px solid #d8deea;border-radius:8px"><option value="3" '+(aiForecastHorizon===3?'selected':'')+'>3 years</option><option value="5" '+(aiForecastHorizon===5?'selected':'')+'>5 years</option></select></label></div>'+aiTrendChart(LAND_CONFLICT_DATA,forecast)+'</div>'+
+    '<div class="panel" style="margin-bottom:16px"><h3>Estimated values after the last recorded year</h3><p style="color:#657087;margin-top:4px">These are retrospective model projections for 2019 onward, not observed counts.</p><div class="table-wrap"><table class="data-table"><thead><tr><th>Year</th><th>Estimated reported conflicts</th><th>Type</th></tr></thead><tbody>'+forecastRows+'</tbody></table></div></div>'+
+    '<div class="panel" style="margin-bottom:16px"><h3>Model quality and transparency</h3><div class="stats"><div class="stat"><div><strong>'+backtestText+'</strong><span>Trend model MAE · rolling last 10 tests</span></div></div><div class="stat"><div><strong>'+naiveText+'</strong><span>Last-observation baseline MAE</span></div></div><div class="stat"><div><strong>'+fit.slope.toFixed(2)+'</strong><span>Trend slope · events per year</span></div></div><div class="stat"><div><strong>'+fit.sampleSize+'</strong><span>Observations used to fit trend</span></div></div></div><p style="color:#657087;margin:10px 0 0">The trend model is not better than the simple last-observation baseline in this small rolling backtest. Treat the output as an exploratory trend line, not a validated forecast. No confidence percentage is displayed.</p></div>'+
+    '<div class="panel"><h3>Dataset and method</h3><ul style="line-height:1.8;color:#596579"><li><b>Source file:</b> landportal-LCW-LCI-NOCONF.csv (provided in this conversation)</li><li><b>Indicator:</b> LCW-LCI-NOCONF — Number of reported land conflicts (India)</li><li><b>Fields used:</b> time (year) and value (reported count)</li><li><b>Method:</b> ordinary least-squares linear regression on the latest 10 observations; estimates are rounded to whole counts and floored at zero</li><li><b>Contributor independence:</b> no contributor model, contributor contribution score, or contributor-submitted data is read by this module</li><li><b>Limitations:</b> sparse historical observations, reporting changes, no state/district/project features, and no records after 2018</li></ul></div>';
 }
 function aiBindPredictionPage() {
-  $('#aiRefresh')?.addEventListener('click',async()=>{await loadAiPredictions();render();});
-  $('#aiInputForm')?.addEventListener('submit',async e=>{
-    e.preventDefault();const form=e.currentTarget,d=Object.fromEntries(new FormData(form));
-    const numeric=['compensation_completion','approval_delay_days','dispute_count','possession_progress','rehabilitation_progress','historical_department_delay_days'];
-    const payload={acquisition_stage:d.acquisition_stage,source_name:d.source_name.trim()||null,source_record_id:d.source_record_id.trim()||null,source_updated_at:d.source_updated_at||null,source_verified:form.elements.source_verified.checked};
-    for(const key of numeric){const value=d[key];payload[key]=value===''?null:Number(value);if(payload[key]!==null&&(!Number.isFinite(payload[key])||payload[key]<0||(['compensation_completion','possession_progress','rehabilitation_progress'].includes(key)&&payload[key]>100)))return toast('Please enter valid non-negative values; progress fields must be 0–100.');}
-    const button=form.querySelector('button[type="submit"]');button.disabled=true;button.textContent='Saving…';
-    const {error}=await supabaseClient.from('projects').update(payload).eq('id',d.project_id);
-    if(error){toast('Could not save prediction inputs: '+error.message);button.disabled=false;button.textContent='Save prediction inputs';return;}
-    await recordActivity(d.project_id,'AI prediction inputs updated','Acquisition indicators and source provenance updated.');
-    toast('Prediction inputs saved.');await loadProjects();await loadAiPredictions();render();
+  document.getElementById('aiRefresh')?.addEventListener('click',()=>render());
+  document.getElementById('aiHorizon')?.addEventListener('change',e=>{
+    aiForecastHorizon=Number(e.target.value)===3?3:5;render();
   });
-  document.querySelectorAll('[data-ai-edit]').forEach(button=>button.addEventListener('click',()=>{
-    const p=aiPredictionRows.find(x=>x.id===button.dataset.aiEdit);const form=$('#aiInputForm');if(!p||!form)return;
-    form.elements.project_id.value=p.id;form.elements.acquisition_stage.value=p.acquisition_stage||'Planning';
-    for(const key of ['compensation_completion','approval_delay_days','dispute_count','possession_progress','rehabilitation_progress','historical_department_delay_days','source_name','source_record_id','source_updated_at'])form.elements[key].value=p[key]??'';
-    form.elements.source_verified.checked=!!p.source_verified;form.scrollIntoView({behavior:'smooth',block:'center'});
-  }));
 }
 const aiOriginalRender=render;
 render=function(){
   if(page==='ai-predictions'){
-    document.querySelectorAll('.nav button').forEach(b=>{b.classList.toggle('active',b.dataset.page===page);b.hidden=!pageAllowed(b.dataset.page)});
-    $('#content').innerHTML=aiPredictionPage();aiBindPredictionPage();return;
+    document.querySelectorAll('.nav button').forEach(b=>{
+      b.classList.toggle('active',b.dataset.page===page);
+      b.hidden=!pageAllowed(b.dataset.page);
+    });
+    document.querySelector('#content').innerHTML=aiPredictionPage();
+    aiBindPredictionPage();
+    return;
   }
   return aiOriginalRender();
 };
 const aiOriginalPageAllowed=pageAllowed;
-pageAllowed=function(p){if(p==='ai-predictions')return currentRole()!=='viewer';return aiOriginalPageAllowed(p);};
-document.querySelector('[data-page="ai-predictions"]')?.addEventListener('click',async()=>{if(!pageAllowed('ai-predictions'))return;page='ai-predictions';await loadAiPredictions();render();window.scrollTo(0,0);});
-window.addEventListener('landsetu:authenticated',()=>{if(page==='ai-predictions')loadAiPredictions().then(render);});
+pageAllowed=function(p){
+  if(p==='ai-predictions')return currentRole()!=='viewer';
+  return aiOriginalPageAllowed(p);
+};
+document.querySelector('[data-page="ai-predictions"]')?.addEventListener('click',()=>{
+  if(!pageAllowed('ai-predictions'))return;
+  page='ai-predictions';render();window.scrollTo(0,0);
+});
