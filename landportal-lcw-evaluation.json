@@ -7,6 +7,32 @@
     2018
   ],
   "missing_years_not_imputed": 47,
+  "related_investment_indicator": {
+    "indicator": "LCW-LCI-VALINV",
+    "description": "Total investment value related to reported land conflicts",
+    "unit": "Indian Rs crore (nominal; not inflation-adjusted)",
+    "observed_records": 40,
+    "observed_year_range": [
+      1916,
+      2018
+    ],
+    "paired_years_with_conflict_counts": 40,
+    "paired_year_range": [
+      1916,
+      2018
+    ],
+    "investment_value_range": [
+      106.57,
+      164526.0
+    ],
+    "paired_year_pearson_correlation": 0.9068266421817939,
+    "paired_year_log1p_pearson_correlation": 0.7038990573152648,
+    "model_use": "Descriptive context only; not used as a model feature or project-delay predictor.",
+    "limitations": [
+      "Investment values are nominal and not inflation-adjusted.",
+      "The indicators are same-year national aggregates; correlation does not establish cause or forecast value."
+    ]
+  },
   "validation": {
     "method": "chronological holdout; final 20% of observed records",
     "training_records": 48,

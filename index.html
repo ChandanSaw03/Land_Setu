@@ -10,6 +10,16 @@ main{min-width:0;padding:0 28px 36px}.topbar{height:104px;display:flex;align-ite
 @media(max-width:1100px){.app{grid-template-columns:190px 1fr}.sidebar{padding-inline:8px}.stats{grid-template-columns:repeat(2,1fr)}.hero h1{font-size:52px}.dashboard-grid,.insights-grid,.map-grid{grid-template-columns:1fr}.lower-grid{grid-template-columns:1fr}}
 @media(max-width:720px){.app{display:block}.sidebar{height:auto;min-height:0;position:relative;padding:10px;border-right:0;border-bottom:1px solid var(--line)}.brand{padding:4px 0 10px}.emblem,.sidebar-bottom{display:none}.brand h2{font-size:23px}.nav{display:flex;overflow:auto;gap:5px}.nav button{padding:10px 12px;white-space:nowrap;font-size:13px;gap:7px}.nav button .ico{font-size:17px;width:auto}.nav button.active{box-shadow:inset 0 -3px #2367d5}.topbar{height:76px;gap:8px}.global-search{height:42px}.top-actions{gap:8px}.pill-select{padding:9px;font-size:12px}.profile{display:none}main{padding:0 14px 25px}.page-head h1{font-size:30px}.page-head p{font-size:14px}.hero{min-height:100px}.hero h1{font-size:42px}.hero p{font-size:17px}.hero-art{font-size:55px;padding:0}.stats{gap:9px}.stat{padding:12px;min-height:100px;gap:9px}.stat-icon{width:42px;height:42px;flex-basis:42px;font-size:20px}.stat strong{font-size:21px}.stat span{font-size:12px}.trend{font-size:12px;margin-top:5px}.panel{padding:14px}.project-mini{grid-template-columns:70px 1fr;gap:10px}.project-mini .status{grid-column:2;justify-self:start}.thumb{height:56px}.filters input{min-width:100%;flex-basis:100%}.filters select{flex:1;min-width:0}.reset{margin-left:0}.report-grid,.settings-grid,.form-grid{grid-template-columns:1fr}.bar-row{grid-template-columns:110px 1fr 35px;font-size:12px}.state-row{grid-template-columns:100px 1fr 35px;font-size:12px}.map-panel{min-height:390px}.map-panel .india-map{height:340px}.table-foot{min-width:700px}}
 .notification-panel{display:none;position:fixed;z-index:30;top:82px;right:28px;width:min(440px,calc(100vw - 28px));max-height:calc(100vh - 105px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 16px 50px #10264a25;padding:18px}.notification-panel.open{display:block}.notification-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.notification-head h3{margin:0;font-size:19px}.notification-head button,.notification-item button{border:0;background:transparent;color:#1557c0;font-size:13px;font-weight:650}.notification-item{padding:12px 0;border-top:1px solid #edf0f5}.notification-item.unread{background:#f5f8ff;margin:0 -8px;padding:12px 8px}.notification-item b{display:block;font-size:14px}.notification-item p{margin:5px 0;color:#536077;font-size:13px}.notification-item small{color:#7a8497}.notification-empty{padding:18px 0;color:#657087;font-size:14px}.activity-heading{font-size:15px;margin:18px 0 8px;padding-top:14px;border-top:1px solid var(--line)}.activity-item{padding:9px 0;border-top:1px solid #edf0f5;font-size:13px}.activity-item b{display:block}.activity-item small{color:#7a8497}@media(max-width:720px){.notification-panel{top:70px;right:12px}}</style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+#projectMap{height:500px;width:100%;border:1px solid var(--line);border-radius:14px;background:#eef3f8;z-index:0}
+.map-notice{margin:12px 0 0;color:var(--muted);font-size:13px}
+.map-legend{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;color:#4b5870;font-size:13px}
+.map-legend span{display:inline-flex;align-items:center;gap:7px}
+.map-key{width:11px;height:11px;border-radius:50%;display:inline-block}
+.map-panel{min-height:0}
+@media(max-width:720px){#projectMap{height:380px}}
+</style>
 </head>
 <body>
 <div class="app">
@@ -44,6 +54,8 @@ main{min-width:0;padding:0 28px 36px}.topbar{height:104px;display:flex;align-ite
 <label>Risk level<select name="risk"><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label>
 <label>Progress (%)<input name="progress" type="number" min="0" max="100" value="0"></label>
 <label>Expected date<input name="date" type="month"></label>
+<label>Latitude<input name="latitude" type="number" min="-90" max="90" step="any" placeholder="e.g. 28.6139"></label>
+<label>Longitude<input name="longitude" type="number" min="-180" max="180" step="any" placeholder="e.g. 77.2090"></label>
 <label>Acquisition stage<select name="acquisition_stage"><option>Planning</option><option>Notification</option><option>Valuation</option><option>Compensation</option><option>Possession</option><option>Rehabilitation</option><option>Completed</option></select></label>
 <label>Compensation completion (%)<input name="compensation_completion" type="number" min="0" max="100" placeholder="Unknown"></label>
 <label>Approval delay (days)<input name="approval_delay_days" type="number" min="0" placeholder="Unknown"></label>
@@ -64,6 +76,7 @@ main{min-width:0;padding:0 28px 36px}.topbar{height:104px;display:flex;align-ite
 <label><span>Verified record</span><input name="verified" type="checkbox"></label>
 </div><div class="modal-actions"><button type="button" class="secondary" id="feedbackCancel">Cancel</button><button type="submit" class="primary">Save Feedback</button></div></form></div></div>
 <div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 let projects=[];
 let currentUser=null,supabaseClient=null,profileData=null;
@@ -73,7 +86,7 @@ function statusClass(s){return s==='At Risk'||s==='Critical'?'risk':s==='On Trac
 function formatProject(row){
  const date=row.expected_completion?new Date(row.expected_completion+'T00:00:00'):null;
  const optionalNumber=value=>value===null||value===undefined||value===''?null:Number(value);
- return {dbId:row.id,id:row.project_code||row.id,name:row.name,state:row.state,district:row.district,status:row.status,risk:row.risk_level,progress:Number(row.progress)||0,date:date?date.toLocaleDateString('en-IN',{month:'short',year:'numeric'}):'—',dateValue:row.expected_completion?row.expected_completion.slice(0,7):'',stage:row.acquisition_stage||'Planning',compensation:optionalNumber(row.compensation_completion),approvalDelay:optionalNumber(row.approval_delay_days),disputes:optionalNumber(row.dispute_count),possession:optionalNumber(row.possession_progress),rehabilitation:optionalNumber(row.rehabilitation_progress),departmentDelay:optionalNumber(row.historical_department_delay_days),sourceName:row.source_name||'',sourceRecordId:row.source_record_id||'',sourceVerified:Boolean(row.source_verified),sourceUpdated:row.source_updated_at||'',symbol:'🏗️'};
+ return {dbId:row.id,id:row.project_code||row.id,name:row.name,state:row.state,district:row.district,status:row.status,risk:row.risk_level,progress:Number(row.progress)||0,date:date?date.toLocaleDateString('en-IN',{month:'short',year:'numeric'}):'—',dateValue:row.expected_completion?row.expected_completion.slice(0,7):'',latitude:optionalNumber(row.latitude),longitude:optionalNumber(row.longitude),stage:row.acquisition_stage||'Planning',compensation:optionalNumber(row.compensation_completion),approvalDelay:optionalNumber(row.approval_delay_days),disputes:optionalNumber(row.dispute_count),possession:optionalNumber(row.possession_progress),rehabilitation:optionalNumber(row.rehabilitation_progress),departmentDelay:optionalNumber(row.historical_department_delay_days),sourceName:row.source_name||'',sourceRecordId:row.source_record_id||'',sourceVerified:Boolean(row.source_verified),sourceUpdated:row.source_updated_at||'',symbol:'🏗️'};
 }
 async function loadProjects(){
  if(!supabaseClient||!currentUser)return;
@@ -167,15 +180,17 @@ async function loadLcwEvaluation(){
     return response.json();
    });
    const loaded=await lcwEvaluationRequest;
-   if(!loaded?.validation)throw new Error('Evaluation file has an invalid format.');
+   if(!loaded?.validation||!loaded?.related_investment_indicator)throw new Error('Evaluation file has an invalid format.');
    lcwEvaluationCache=loaded;
   }
   if(!panel.isConnected)return;
   const validation=lcwEvaluationCache.validation;
+  const investment=lcwEvaluationCache.related_investment_indicator;
   const mae=Number(validation.model.mae),baseline=Number(validation.last_observation_baseline.mae);
   const improvement=Number(validation.mae_improvement_over_baseline);
+  const correlation=Number(investment.paired_year_pearson_correlation);
   const range=validation.test_year_range.map(safeText).join('–');
-  panel.innerHTML=`<h3>LandPortal LCW · historical count model</h3><div class="report-grid"><div class="report-card"><span>Observed records</span><div class="big">${safeText(lcwEvaluationCache.observed_records)}</div><small>${safeText(lcwEvaluationCache.observed_year_range.join('–'))}</small></div><div class="report-card"><span>Chronological holdout MAE</span><div class="big">${Number.isFinite(mae)?mae.toFixed(2):'—'}</div><small>${range} · ${safeText(validation.test_records)} test rows</small></div><div class="report-card"><span>Last-observation baseline MAE</span><div class="big">${Number.isFinite(baseline)?baseline.toFixed(2):'—'}</div><small>${Number.isFinite(improvement)?`${(improvement*100).toFixed(1)}% lower on this holdout`:'No baseline comparison'}</small></div><div class="report-card"><span>Years not represented</span><div class="big">${safeText(lcwEvaluationCache.missing_years_not_imputed)}</div><small>Missing years were not treated as zeros</small></div></div><p style="color:#657087;margin-bottom:0">Separate national reported-conflict trend only. It is not used in project risk screening, is not a delay model, and is stale (latest data: ${safeText(lcwEvaluationCache.observed_year_range[1])}).</p>`;
+  panel.innerHTML=`<h3>LandPortal LCW · historical indicators</h3><div class="report-grid"><div class="report-card"><span>Reported-conflict records</span><div class="big">${safeText(lcwEvaluationCache.observed_records)}</div><small>${safeText(lcwEvaluationCache.observed_year_range.join('–'))}</small></div><div class="report-card"><span>Conflict-count holdout MAE</span><div class="big">${Number.isFinite(mae)?mae.toFixed(2):'—'}</div><small>${range} · ${safeText(validation.test_records)} test rows</small></div><div class="report-card"><span>Last-observation baseline MAE</span><div class="big">${Number.isFinite(baseline)?baseline.toFixed(2):'—'}</div><small>${Number.isFinite(improvement)?`${(improvement*100).toFixed(1)}% lower on this holdout`:'No baseline comparison'}</small></div><div class="report-card"><span>Conflict-count years not represented</span><div class="big">${safeText(lcwEvaluationCache.missing_years_not_imputed)}</div><small>Missing years were not treated as zeros</small></div><div class="report-card"><span>Investment-value records</span><div class="big">${safeText(investment.observed_records)}</div><small>${safeText(investment.unit)} · ${safeText(investment.observed_year_range.join('–'))}</small></div><div class="report-card"><span>Same-year count / investment correlation</span><div class="big">${Number.isFinite(correlation)?correlation.toFixed(2):'—'}</div><small>${safeText(investment.paired_years_with_conflict_counts)} shared years · descriptive only</small></div></div><p style="color:#657087;margin-bottom:0">Investment values are nominal and not inflation-adjusted; same-year correlation is not proof of cause or forecasting value. Neither LandPortal series is used in project risk screening. This is historical national context, not a delay model or current forecast (latest data: ${safeText(lcwEvaluationCache.observed_year_range[1])}).</p>`;
  }catch(error){
   lcwEvaluationRequest=null;
   if(panel.isConnected)panel.innerHTML=`<h3>LandPortal LCW · historical count model</h3><p class="notification-empty">Could not load the saved evaluation: ${safeText(error.message)}</p>`;
@@ -198,7 +213,42 @@ function insights(){
  <div class="lower-grid"><div class="panel"><h3>Risk Level Counts</h3><div class="bars">${riskRows||'<p>No project data yet.</p>'}</div></div><div class="panel"><h3>State Risk Overview</h3>${states.length?'<div class="state-list">'+states.map(x=>`<div class="state-row"><span>${safeText(x.state)}</span><div class="bar"><i style="width:${x.score}%"></i></div><b>${x.score}%</b></div>`).join('')+'</div>':'<p>No state data available yet.</p>'}</div></div>`
 }function mapPage(){
  const states=stateRiskSummary();
- return `<div class="page-head"><div><h1>LandSetu Map</h1><p>State-wise project risk summaries from your database</p></div></div>${statCards()}<div class="map-grid"><div class="panel map-panel"><h3>Project Coverage</h3><div class="india-wrap">${indiaSvg()}<div class="legend"><b>${projects.length} projects</b><span>Across ${states.length} states / regions</span><span>Average risk: ${averageRisk()}%</span><small>Illustrative India outline; state scores below are calculated from project records.</small></div></div></div><div><div class="panel"><h3>State Risk Overview</h3>${states.length?'<div class="state-list">'+states.map(x=>`<div class="state-row"><span>${safeText(x.state)} <small>(${x.count})</small></span><div class="bar"><i style="width:${x.score}%"></i></div><b>${x.score}%</b></div>`).join('')+'</div>':'<p style="color:#657087">No project records yet. Add projects to populate this view.</p>'}</div><div class="panel" style="margin-top:16px"><h3>Risk Summary</h3><div class="keylist">${riskCounts().map(x=>`<div>${x.level}: <b>${x.count}</b> project(s)</div>`).join('')}</div></div></div></div>`
+ const located=projects.filter(p=>Number.isFinite(p.latitude)&&Number.isFinite(p.longitude));
+ const unlocated=projects.filter(p=>!Number.isFinite(p.latitude)||!Number.isFinite(p.longitude));
+ const stateRows=states.length?'<div class="state-list">'+states.map(x=>`<div class="state-row"><span>${safeText(x.state)} <small>(${x.count})</small></span><div class="bar"><i style="width:${x.score}%"></i></div><b>${x.score}%</b></div>`).join('')+'</div>':'<p style="color:#657087">No project records yet.</p>';
+ const missingRows=unlocated.length?`<div class="keylist">${unlocated.slice(0,8).map(p=>`<div>${safeText(p.name)} <small>· ${safeText(p.state)}, ${safeText(p.district)}</small></div>`).join('')}${unlocated.length>8?`<small>and ${unlocated.length-8} more</small>`:''}</div>`:'<p style="color:#657087">All projects have coordinates.</p>';
+ return `<div class="page-head"><div><h1>Project Map</h1><p>Project pins use the latitude and longitude saved with each project.</p></div><button class="primary" onclick="go('projects')">Add coordinates</button></div>${statCards()}<div class="map-grid"><div class="panel map-panel"><h3>Project locations (${located.length} of ${projects.length})</h3><div class="map-legend"><span><i class="map-key" style="background:#b4232c"></i>Critical</span><span><i class="map-key" style="background:#e3424f"></i>High</span><span><i class="map-key" style="background:#e98a22"></i>Medium</span><span><i class="map-key" style="background:#159b64"></i>Low</span></div><div id="projectMap" role="application" aria-label="Interactive map of project locations"></div><p class="map-notice" id="mapNotice">${located.length?'Loading map tiles…':'No projects have coordinates yet. Add latitude and longitude when creating or editing a project, or import them from CSV.'}</p><p class="map-notice" id="mapTileError" role="status"></p><small>Map tiles by OpenStreetMap contributors. Project pins are rendered in this browser; no location lookup or geocoding is performed.</small></div><div><div class="panel"><h3>State risk overview</h3>${stateRows}</div><div class="panel" style="margin-top:16px"><h3>Projects needing coordinates (${unlocated.length})</h3>${missingRows}<p class="map-notice">Edit these projects from the Projects page and enter coordinates to place their pins.</p></div><div class="panel" style="margin-top:16px"><h3>Risk summary</h3><div class="keylist">${riskCounts().map(x=>`<div>${x.level}: <b>${x.count}</b> project(s)</div>`).join('')}</div></div></div></div>`;
+}
+let projectMap=null;
+function mapRiskColor(level){return ({Critical:'#b4232c',High:'#e3424f',Medium:'#e98a22',Low:'#159b64'})[level]||'#657087'}
+function renderProjectMap(){
+ const element=$('#projectMap');
+ if(!element)return;
+ const notice=$('#mapNotice'),tileError=$('#mapTileError');
+ if(!window.L){notice.textContent='The map library did not load. Check your internet connection and reload the page.';return;}
+ if(projectMap){projectMap.remove();projectMap=null;}
+ projectMap=window.L.map(element,{scrollWheelZoom:false}).setView([22.5,79],5);
+ const tiles=window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:19,
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
+ }).addTo(projectMap);
+ tiles.on('tileerror',()=>{tileError.textContent='Map tiles could not be loaded. Check your internet connection or try again later.';});
+ const located=projects.filter(p=>Number.isFinite(p.latitude)&&Number.isFinite(p.longitude)&&p.latitude>=-90&&p.latitude<=90&&p.longitude>=-180&&p.longitude<=180);
+ const coordinateSummary=located.length
+  ?`${located.length} project(s) shown. ${projects.length-located.length} project(s) still need coordinates.`
+  :'No projects have coordinates yet. Add latitude and longitude when creating or editing a project, or import them from CSV.';
+ notice.textContent=`${coordinateSummary} Loading map tiles…`;
+ tiles.once('load',()=>{tileError.textContent='';notice.textContent=coordinateSummary;});
+ const bounds=[];
+ located.forEach(project=>{
+  const color=mapRiskColor(project.risk);
+  const marker=window.L.circleMarker([project.latitude,project.longitude],{radius:9,color,fillColor:color,fillOpacity:.85,weight:2});
+  marker.bindPopup(`<b>${safeText(project.name)}</b><br>${safeText(project.id)}<br>${safeText(project.district)}, ${safeText(project.state)}<br>Risk: ${safeText(project.risk)} · ${safeText(project.status)}`).addTo(projectMap);
+  bounds.push([project.latitude,project.longitude]);
+ });
+ if(bounds.length>1)projectMap.fitBounds(bounds,{padding:[28,28],maxZoom:12});
+ else if(bounds.length===1)projectMap.setView(bounds[0],12);
+ projectMap.whenReady(()=>projectMap.invalidateSize());
 }
 function reports(){
  const high=projects.filter(p=>p.risk==='High'||p.risk==='Critical').length;
@@ -237,7 +287,7 @@ function bindSettings(){
   }catch(error){toast('Could not save profile: '+error.message);button.disabled=false;button.textContent='Save Profile';}
  });
 }
-function render(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#content').innerHTML=({dashboard,projects:projectTable,bhoomi:bhoomiPage,insights,map:mapPage,reports,settings}[page])();if(page==='projects'){bindProjectFilters();$('#addProject').onclick=openModal;$('#importCsv').onclick=()=>$('#csvImport').click();$('#csvImport').onchange=async e=>{const file=e.target.files?.[0];if(file)await importProjectCsv(file);};}if(page==='bhoomi')loadLcwEvaluation();if(page==='settings')bindSettings();}
+function render(){document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#content').innerHTML=({dashboard,projects:projectTable,bhoomi:bhoomiPage,insights,map:mapPage,reports,settings}[page])();if(page==='projects'){bindProjectFilters();$('#addProject').onclick=openModal;$('#importCsv').onclick=()=>$('#csvImport').click();$('#csvImport').onchange=async e=>{const file=e.target.files?.[0];if(file)await importProjectCsv(file);};}if(page==='map')renderProjectMap();if(page==='bhoomi')loadLcwEvaluation();if(page==='settings')bindSettings();}
 function go(p){page=p;render();window.scrollTo(0,0)}
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>go(b.dataset.page)));
 function bindProjectFilters(){[['projectSearch','q'],['stateFilter','state'],['districtFilter','district'],['statusFilter','status'],['riskFilter','risk']].forEach(([id,k])=>$('#'+id).addEventListener('input',e=>{filters[k]=e.target.value;pageNo=1;const pos=window.scrollY;render();window.scrollTo(0,pos)}));$('#reset').onclick=()=>{filters={q:'',state:'',district:'',status:'',risk:''};pageNo=1;render()}}
@@ -299,6 +349,12 @@ function csvDate(value){
  return date.length===7?`${date}-01`:date;
 }
 function csvValue(record,...keys){for(const key of keys)if(record[key]!==undefined&&record[key]!=='')return record[key];return '';}
+function coordinatePair(latitudeValue,longitudeValue,label='Coordinates'){
+ const latitude=nullableCsvNumber(latitudeValue,`${label} latitude`,{min:-90,max:90});
+ const longitude=nullableCsvNumber(longitudeValue,`${label} longitude`,{min:-180,max:180});
+ if((latitude===null)!==(longitude===null))throw new Error(`${label} require both latitude and longitude.`);
+ return {latitude,longitude};
+}
 async function importProjectCsv(file){
  if(!supabaseClient||!currentUser)return toast('Please sign in before importing project data.');
  let parsed;
@@ -316,19 +372,24 @@ async function importProjectCsv(file){
    const risk=({low:'Low',medium:'Medium',high:'High',critical:'Critical'})[riskValue.toLowerCase()];
    if(!risk)throw new Error(`Unknown risk level "${riskValue}".`);
    const date=csvDate(csvValue(record,'expected_completion','expected_date','date'));
+   const hasLatitudeHeader='latitude' in record||'lat' in record;
+   const hasLongitudeHeader='longitude' in record||'lon' in record;
+   if(hasLatitudeHeader!==hasLongitudeHeader)throw new Error('CSV must include both latitude and longitude columns together.');
+   const coordinates=coordinatePair(csvValue(record,'latitude','lat'),csvValue(record,'longitude','lon'),`Line ${line} coordinates`);
    const verifiedValue=csvValue(record,'source_verified','verified').toLowerCase();
    if(verifiedValue&&!['true','false','yes','no','1','0'].includes(verifiedValue))throw new Error('source_verified must be true/false, yes/no or 1/0.');
-   const payload={project_code:code,name,state,district,status,risk_level:risk,progress:nullableCsvNumber(csvValue(record,'progress'),`line ${line} progress`,{max:100})??0,expected_completion:date,acquisition_stage:stageValue?normalizeStage(stageValue):'Planning',compensation_completion:nullableCsvNumber(csvValue(record,'compensation_completion','compensation_progress'),`line ${line} compensation`,{max:100}),approval_delay_days:nullableCsvNumber(csvValue(record,'approval_delay_days','approval_delay'),`line ${line} approval delay`),dispute_count:nullableCsvNumber(csvValue(record,'dispute_count','disputes'),`line ${line} disputes`),possession_progress:nullableCsvNumber(csvValue(record,'possession_progress','possession'),`line ${line} possession`,{max:100}),rehabilitation_progress:nullableCsvNumber(csvValue(record,'rehabilitation_progress','rehabilitation'),`line ${line} rehabilitation`,{max:100}),historical_department_delay_days:nullableCsvNumber(csvValue(record,'historical_department_delay_days','department_delay_days'),`line ${line} historical delay`),source_name:csvValue(record,'source_name')||'Authorized CSV import',source_record_id:csvValue(record,'source_record_id')||code,source_verified:['true','yes','1'].includes(verifiedValue),source_updated_at:csvDate(csvValue(record,'source_updated_at'))};
+   const payload={project_code:code,name,state,district,status,risk_level:risk,progress:nullableCsvNumber(csvValue(record,'progress'),`line ${line} progress`,{max:100})??0,expected_completion:date,...coordinates,acquisition_stage:stageValue?normalizeStage(stageValue):'Planning',compensation_completion:nullableCsvNumber(csvValue(record,'compensation_completion','compensation_progress'),`line ${line} compensation`,{max:100}),approval_delay_days:nullableCsvNumber(csvValue(record,'approval_delay_days','approval_delay'),`line ${line} approval delay`),dispute_count:nullableCsvNumber(csvValue(record,'dispute_count','disputes'),`line ${line} disputes`),possession_progress:nullableCsvNumber(csvValue(record,'possession_progress','possession'),`line ${line} possession`,{max:100}),rehabilitation_progress:nullableCsvNumber(csvValue(record,'rehabilitation_progress','rehabilitation'),`line ${line} rehabilitation`,{max:100}),historical_department_delay_days:nullableCsvNumber(csvValue(record,'historical_department_delay_days','department_delay_days'),`line ${line} historical delay`),source_name:csvValue(record,'source_name')||'Authorized CSV import',source_record_id:csvValue(record,'source_record_id')||code,source_verified:['true','yes','1'].includes(verifiedValue),source_updated_at:csvDate(csvValue(record,'source_updated_at'))};
    const key=code.toLowerCase();if(records.has(key))duplicateRows++;
-   records.set(key,{line,payload});
+   records.set(key,{line,payload,hasCoordinates:hasLatitudeHeader&&hasLongitudeHeader});
   }catch(error){errors.push(`Line ${line}: ${error.message}`);}
  }
  let imported=0,updated=0;
- for(const {line,payload} of records.values()){
+ for(const {line,payload,hasCoordinates} of records.values()){
   const existing=projects.find(project=>project.id.toLowerCase()===payload.project_code.toLowerCase());
+  const savedPayload=existing&&!hasCoordinates?{...payload,latitude:existing.latitude,longitude:existing.longitude}:payload;
   const result=existing
-   ?await supabaseClient.from('projects').update(payload).eq('id',existing.dbId).select('id').single()
-   :await supabaseClient.from('projects').insert({...payload,created_by:currentUser.id}).select('id').single();
+   ?await supabaseClient.from('projects').update(savedPayload).eq('id',existing.dbId).select('id').single()
+   :await supabaseClient.from('projects').insert({...savedPayload,created_by:currentUser.id}).select('id').single();
   if(result.error)errors.push(`Line ${line} (${payload.project_code}): ${result.error.message}`);
   else if(existing)updated++;else imported++;
  }
@@ -343,6 +404,8 @@ function openModal(project=null){
  form.elements.state.value=project?.state||'';form.elements.district.value=project?.district||'';
  form.elements.status.value=project?.status||'In Progress';form.elements.risk.value=project?.risk||'Low';
  form.elements.progress.value=project?.progress??0;form.elements.date.value=project?.dateValue||'';
+ form.elements.latitude.value=project?.latitude??'';
+ form.elements.longitude.value=project?.longitude??'';
  form.elements.acquisition_stage.value=project?.stage||'Planning';
  form.elements.compensation_completion.value=project?.compensation??'';
  form.elements.approval_delay_days.value=project?.approvalDelay??'';
@@ -364,7 +427,10 @@ $('#projectForm').addEventListener('submit',async e=>{
  const form=e.currentTarget,d=Object.fromEntries(new FormData(form));
  if(d.id&&!/^[A-Za-z0-9_-]{1,40}$/.test(d.id))return toast('Project ID can contain only letters, numbers, hyphens and underscores.');
  const optionalNumber=value=>value===''?null:Number(value);
- const payload={project_code:d.id||null,name:d.name.trim(),state:d.state.trim(),district:d.district.trim(),status:d.status,risk_level:d.risk,progress:Number(d.progress)||0,expected_completion:d.date?d.date+'-01':null,acquisition_stage:d.acquisition_stage,compensation_completion:optionalNumber(d.compensation_completion),approval_delay_days:optionalNumber(d.approval_delay_days),dispute_count:optionalNumber(d.dispute_count),possession_progress:optionalNumber(d.possession_progress),rehabilitation_progress:optionalNumber(d.rehabilitation_progress),historical_department_delay_days:optionalNumber(d.historical_department_delay_days),source_name:d.source_name.trim()||null,source_record_id:d.source_record_id.trim()||null,source_verified:form.elements.source_verified.checked,source_updated_at:d.source_updated_at||null};
+ let coordinates;
+ try{coordinates=coordinatePair(d.latitude,d.longitude,'Project coordinates');}
+ catch(error){return toast(error.message);}
+ const payload={project_code:d.id||null,name:d.name.trim(),state:d.state.trim(),district:d.district.trim(),status:d.status,risk_level:d.risk,progress:Number(d.progress)||0,expected_completion:d.date?d.date+'-01':null,...coordinates,acquisition_stage:d.acquisition_stage,compensation_completion:optionalNumber(d.compensation_completion),approval_delay_days:optionalNumber(d.approval_delay_days),dispute_count:optionalNumber(d.dispute_count),possession_progress:optionalNumber(d.possession_progress),rehabilitation_progress:optionalNumber(d.rehabilitation_progress),historical_department_delay_days:optionalNumber(d.historical_department_delay_days),source_name:d.source_name.trim()||null,source_record_id:d.source_record_id.trim()||null,source_verified:form.elements.source_verified.checked,source_updated_at:d.source_updated_at||null};
  const submit=form.querySelector('button[type="submit"]');submit.disabled=true;submit.textContent='Saving…';
  try{
   let result;if(d.recordId){result=await supabaseClient.from('projects').update(payload).eq('id',d.recordId).select('*').single();}

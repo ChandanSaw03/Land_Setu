@@ -12,7 +12,9 @@ alter table public.projects
   add column if not exists source_name text,
   add column if not exists source_record_id text,
   add column if not exists source_verified boolean not null default false,
-  add column if not exists source_updated_at date;
+  add column if not exists source_updated_at date,
+  add column if not exists latitude double precision,
+  add column if not exists longitude double precision;
 
 do $$
 begin
@@ -36,6 +38,15 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'projects_acquisition_stage_valid' and conrelid = 'public.projects'::regclass) then
     alter table public.projects add constraint projects_acquisition_stage_valid check (acquisition_stage in ('Planning', 'Notification', 'Valuation', 'Compensation', 'Possession', 'Rehabilitation', 'Completed'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'projects_coordinates_paired' and conrelid = 'public.projects'::regclass) then
+    alter table public.projects add constraint projects_coordinates_paired check ((latitude is null) = (longitude is null));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'projects_latitude_range' and conrelid = 'public.projects'::regclass) then
+    alter table public.projects add constraint projects_latitude_range check (latitude between -90 and 90);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'projects_longitude_range' and conrelid = 'public.projects'::regclass) then
+    alter table public.projects add constraint projects_longitude_range check (longitude between -180 and 180);
   end if;
 end $$;
 
