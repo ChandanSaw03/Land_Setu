@@ -61,6 +61,7 @@ if (!configured) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
   });
+  window.landsetuSupabase = supabase;
 
   function render() {
     const signup = mode === "signup";
@@ -202,6 +203,7 @@ if (!configured) {
 
     screen.style.display = "none";
     app.style.display = "grid";
+    window.dispatchEvent(new CustomEvent("landsetu:authenticated", { detail: { user, profile } }));
 
     document.querySelector("#auth-logout")?.addEventListener("click", async (event) => {
       const logoutButton = event.currentTarget;
@@ -238,6 +240,7 @@ if (!configured) {
     } else if (session?.user) {
       setTimeout(() => enterApp(session.user), 0);
     } else {
+      window.dispatchEvent(new CustomEvent("landsetu:signedout"));
       showAuthScreen("login");
     }
   });
