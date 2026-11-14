@@ -1,4 +1,4 @@
-// Copy your Supabase Project URL and anon/public key from Project Settings > API.
-// Never put a service_role key in browser code.
-export const SUPABASE_URL = "PASTE_YOUR_SUPABASE_PROJECT_URL_HERE";
-export const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_PUBLIC_KEY_HERE";
+// Public browser credentials for the LandSetu Supabase project.
+// This key is intentionally publishable; never place a service_role/secret key here.
+export const SUPABASE_URL = "https://jpzhfmizcijxryjbhjrl.supabase.co";
+export const SUPABASE_ANON_KEY = "sb_publishable_8pJwnUDVY6oeNGN6ubqVkQ_0cSgZOk2";
