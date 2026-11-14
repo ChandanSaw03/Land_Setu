@@ -15,7 +15,7 @@ document.head.append(style);
 
 const screen = document.createElement("section");
 screen.id = "auth-screen";
-screen.innerHTML = `<div class="auth-card"><div class="auth-brand"><div class="mark">♛</div><h1>LandSetu</h1><p>Predict · Plan · Prevent</p></div><div id="auth-content"></div></div>`;
+screen.innerHTML = `<div class="auth-card"><div class="auth-brand"><div class="mark" role="img" aria-label="Earth globe">🌍</div><h1>LandSetu</h1><p>Predict · Plan · Prevent</p></div><div id="auth-content"></div></div>`;
 app.before(screen);
 app.style.display = "none";
 
