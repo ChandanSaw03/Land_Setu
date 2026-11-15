@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     const url = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (!url || !serviceKey || !anonKey) throw new Error("Supabase Edge Function environment is incomplete.");
+    if (!url || !serviceKey) throw new Error("Supabase Edge Function environment is incomplete.");
     const admin = createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
     const cronHeader=req.headers.get("x-landsetu-cron-token")||"";
     const {data:cronSecret}=await admin.from("landsetu_cron_secrets").select("token").eq("id",1).maybeSingle();
@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
     if(!isCron){
       const auth = req.headers.get("Authorization") || "";
       if (!auth.startsWith("Bearer ")) return json({error:"Sign-in required"},401);
+      if(!anonKey) throw new Error("SUPABASE_ANON_KEY is not configured for authenticated requests.");
       const userClient = createClient(url,anonKey,{global:{headers:{Authorization:auth}}});
       const {data:{user:authenticatedUser},error:userError}=await userClient.auth.getUser();
       if (userError || !authenticatedUser) return json({error:"Session is invalid or expired"},401);
@@ -82,7 +83,9 @@ Deno.serve(async (req) => {
     if(isCron && action!=="scan_sources") return json({error:"Scheduled token is only valid for source scanning."},403);
 
     if (action === "scan_sources") {
-      const {data:sources,error}=await admin.from("intelligence_sources").select("*").eq("enabled",true);
+      let sourceQuery=admin.from("intelligence_sources").select("*").eq("enabled",true);
+      if(body.scheduled_only===true) sourceQuery=sourceQuery.eq("scheduled_enabled",true);
+      const {data:sources,error}=await sourceQuery;
       if (error) throw error;
       const results=[];
       for (const source of (sources||[])) {
