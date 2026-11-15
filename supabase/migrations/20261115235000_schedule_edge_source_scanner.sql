@@ -1,5 +1,4 @@
-create schema if not exists net;
-create extension if not exists pg_net with schema net;
+create extension if not exists pg_net;
 create table if not exists public.landsetu_cron_secrets (
   id smallint primary key check (id=1),
   token uuid not null default gen_random_uuid(),
