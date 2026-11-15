@@ -225,6 +225,45 @@ Deno.serve(async (req) => {
       return json({ok:true,prediction:saved,analysis:result});
     }
 
+    if (action === "predict_parcel") {
+      const parcelId=clean(body.parcel_id,80);
+      if(!parcelId) throw new Error("Choose a parcel before generating a parcel forecast.");
+      const {data:parcel,error:parcelError}=await admin.from("land_parcels").select("*").eq("id",parcelId).single();
+      if(parcelError) throw parcelError;
+      const projectId=parcel.project_id;
+      if(!(await canAccessProject(projectId))) return json({error:"You do not have access to this parcel's project."},403);
+      const [{data:project,error:projectError},{data:cases,error:caseError},{data:acquisitions,error:acqError},{data:milestones},{data:awards},{data:verifiedDocs}] = await Promise.all([
+        admin.from("projects").select("*").eq("id",projectId).single(),
+        admin.from("legal_cases").select("*").eq("parcel_id",parcelId).limit(100),
+        admin.from("parcel_acquisitions").select("*").eq("parcel_id",parcelId).limit(100),
+        admin.from("acquisition_milestones").select("*").eq("project_id",projectId).limit(100),
+        admin.from("acquisition_awards").select("*").eq("project_id",projectId).limit(100),
+        admin.from("intelligence_documents").select("title,document_type,published_on,extracted_data,verification_status,parcel_id").eq("project_id",projectId).eq("verification_status","verified").limit(100)
+      ]);
+      if(projectError) throw projectError; if(caseError) throw caseError; if(acqError) throw acqError;
+      const parcelDocs=(verifiedDocs||[]).filter(d=>!d.parcel_id||d.parcel_id===parcelId);
+      const snapshot={project,parcel,parcel_acquisitions:acquisitions||[],parcel_legal_cases:cases||[],project_milestones:milestones||[],awards:awards||[],verified_government_documents:parcelDocs};
+      const result=await callAI(JSON.stringify(snapshot).slice(0,120000),
+        "You are Bhoomi Predict, an evidence-led Indian land-acquisition analyst. Forecast the remaining calendar days for THIS SINGLE PARCEL only. Use the parcel's acquisition status, notice and objection dates, objections, linked active court cases/stays, ownership/title conflicts, survey mismatch, award and compensation status, possession, project dependencies and verified government documents. Do not use project-wide counts as if they apply to this parcel. Do not invent missing facts or assume statutory deadlines are actual durations. Return valid JSON: predicted_additional_days (integer or null), range_min_days (integer or null), range_max_days (integer or null), estimated_completion_date (YYYY-MM-DD or null), risk_score (0-100 or null), risk_level (Low/Medium/High/Critical/Insufficient data), data_completeness (0-100), drivers (array of {factor,observed_evidence,estimated_delay_days,confidence}), recommendations (array of {action,owner_role,urgency}), explanation, missing_data (array), limitations. If there is insufficient parcel-specific evidence, return null days and Insufficient data. Never claim statistical confidence unless supported by validated historical parcel outcomes.");
+      const record={
+        project_id:projectId,parcel_id:parcelId,model_version:"bhoomi-predict-parcel-llm-v1",
+        predicted_additional_days:Number.isInteger(result.predicted_additional_days)?Math.max(0,result.predicted_additional_days):null,
+        range_min_days:Number.isInteger(result.range_min_days)?Math.max(0,result.range_min_days):null,
+        range_max_days:Number.isInteger(result.range_max_days)?Math.max(0,result.range_max_days):null,
+        estimated_completion_date:result.estimated_completion_date||null,
+        risk_score:Number.isInteger(result.risk_score)?Math.max(0,Math.min(100,result.risk_score)):null,
+        risk_level:result.risk_level||"Insufficient data",drivers:result.drivers||[],recommendations:result.recommendations||[],
+        data_completeness:Number.isInteger(result.data_completeness)?Math.max(0,Math.min(100,result.data_completeness)):0,
+        explanation:clean(result.explanation,4000),input_snapshot:{project_id:projectId,parcel_id:parcelId,legal_case_count:(cases||[]).length,acquisition_record_count:(acquisitions||[]).length,verified_document_count:parcelDocs.length}
+      };
+      const {data:saved,error:saveError}=await admin.from("ai_delay_predictions").insert(record).select("*").single();
+      if(saveError) throw saveError;
+      if(["High","Critical"].includes(record.risk_level)){
+        await admin.from("intelligence_alerts").insert({project_id:projectId,parcel_id:parcelId,alert_type:"ai_parcel_risk_prediction",severity:record.risk_level.toLowerCase(),title:"Bhoomi Predict: "+record.risk_level+" parcel risk",message:record.explanation||"AI identified material parcel acquisition delay risks.",is_read:false});
+      }
+      return json({ok:true,prediction:saved,analysis:result});
+    }
+
     if (action === "verify_document") {
       const documentId=clean(body.document_id,80), decision=body.decision;
       if(!documentId || !["verified","rejected"].includes(decision)) throw new Error("A document and a valid verification decision are required.");
