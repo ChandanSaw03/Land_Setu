@@ -186,11 +186,15 @@ if (!configured) {
     if (!user || activeUserId === user.id) return;
     activeUserId = user.id;
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", user.id)
       .maybeSingle();
+    if (profileError) {
+      activeUserId = null;
+      throw new Error("Your account was verified, but LandSetu could not load your profile: " + profileError.message);
+    }
 
     const fullName = profile?.full_name || user.user_metadata?.full_name || user.email?.split("@")[0] || "User";
     const role = ({national_admin:"National Admin",state_admin:"State Admin",project_manager:"Project Manager",analyst:"Analyst",viewer:"Viewer"})[profile?.role] || "Viewer";
@@ -237,14 +241,53 @@ if (!configured) {
     });
   }
 
-  supabase.auth.onAuthStateChange((event, session) => {
+  // Never leave users on the startup splash indefinitely if session restoration
+  // or the profile request stalls (for example, on a slow GitHub Pages load).
+  let startupResolved = false;
+  const startupTimeout = setTimeout(() => {
+    if (startupResolved) return;
+    startupResolved = true;
+    showAuthScreen("login");
+    showMessage("We couldn't verify your saved session. Please sign in again. Your account and project data have not been changed.");
+  }, 12000);
+
+  async function handleAuthState(event, session) {
+    if (!startupResolved) {
+      startupResolved = true;
+      clearTimeout(startupTimeout);
+    }
     if (event === "PASSWORD_RECOVERY") {
       showAuthScreen("recovery");
     } else if (session?.user) {
-      setTimeout(() => enterApp(session.user), 0);
+      try {
+        await enterApp(session.user);
+      } catch (error) {
+        showAuthScreen("login");
+        showMessage(error?.message || "Could not load your account. Please try again.");
+      }
     } else {
       window.dispatchEvent(new CustomEvent("landsetu:signedout"));
       showAuthScreen("login");
+    }
+  }
+
+  supabase.auth.onAuthStateChange((event, session) => {
+    // Defer Supabase calls until its internal auth-state lock is released.
+    setTimeout(() => handleAuthState(event, session), 0);
+  });
+
+  // Explicitly request the current session as a fallback to the auth event.
+  // The active-user guard prevents duplicate dashboard initialization.
+  supabase.auth.getSession().then(({ data, error }) => {
+    if (error) throw error;
+    if (data?.session?.user) return handleAuthState("INITIAL_SESSION", data.session);
+    return handleAuthState("SIGNED_OUT", null);
+  }).catch((error) => {
+    if (!startupResolved) {
+      startupResolved = true;
+      clearTimeout(startupTimeout);
+      showAuthScreen("login");
+      showMessage(error?.message || "Unable to restore your session. Please sign in again.");
     }
   });
 
