@@ -47,16 +47,24 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     if (!url || !serviceKey || !anonKey) throw new Error("Supabase Edge Function environment is incomplete.");
-    const auth = req.headers.get("Authorization") || "";
-    if (!auth.startsWith("Bearer ")) return json({error:"Sign-in required"},401);
-    const userClient = createClient(url,anonKey,{global:{headers:{Authorization:auth}}});
-    const {data:{user},error:userError}=await userClient.auth.getUser();
-    if (userError || !user) return json({error:"Session is invalid or expired"},401);
     const admin = createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
-    const {data:profile,error:profileError}=await admin.from("profiles").select("role,assigned_state").eq("id",user.id).maybeSingle();
-    if (profileError || !profile) return json({error:"User profile could not be verified"},403);
-    const allowed = ["national_admin","state_admin","project_manager","analyst"].includes(profile.role);
-    if (!allowed) return json({error:"Your account is not permitted to run acquisition intelligence"},403);
+    const cronHeader=req.headers.get("x-landsetu-cron-token")||"";
+    const {data:cronSecret}=await admin.from("landsetu_cron_secrets").select("token").eq("id",1).maybeSingle();
+    const isCron=!!cronHeader && !!cronSecret?.token && cronHeader===String(cronSecret.token);
+    let user=null, profile=null;
+    if(!isCron){
+      const auth = req.headers.get("Authorization") || "";
+      if (!auth.startsWith("Bearer ")) return json({error:"Sign-in required"},401);
+      const userClient = createClient(url,anonKey,{global:{headers:{Authorization:auth}}});
+      const {data:{user:authenticatedUser},error:userError}=await userClient.auth.getUser();
+      if (userError || !authenticatedUser) return json({error:"Session is invalid or expired"},401);
+      user=authenticatedUser;
+      const {data:loadedProfile,error:profileError}=await admin.from("profiles").select("role,assigned_state").eq("id",user.id).maybeSingle();
+      if (profileError || !loadedProfile) return json({error:"User profile could not be verified"},403);
+      profile=loadedProfile;
+      const allowed = ["national_admin","state_admin","project_manager","analyst"].includes(profile.role);
+      if (!allowed) return json({error:"Your account is not permitted to run acquisition intelligence"},403);
+    }
     const canAccessProject = async (projectId) => {
       if (profile.role === "national_admin") return true;
       if (!projectId) return false;
@@ -71,6 +79,7 @@ Deno.serve(async (req) => {
     };
     const body = await req.json();
     const action = clean(body.action,60);
+    if(isCron && action!=="scan_sources") return json({error:"Scheduled token is only valid for source scanning."},403);
 
     if (action === "scan_sources") {
       const {data:sources,error}=await admin.from("intelligence_sources").select("*").eq("enabled",true);
@@ -79,7 +88,7 @@ Deno.serve(async (req) => {
       for (const source of (sources||[])) {
         let status="ok", httpStatus=null, found=0, summary="", errorMessage=null;
         try {
-          const res=await fetch(source.url,{headers:{"User-Agent":"LandSetu-Official-Source-Monitor/1.0 (+public government source monitoring)","Accept":"text/html,application/pdf,*/*"},redirect:"follow"});
+          const res=await fetch(source.url,{headers:{"User-Agent":"LandSetu-Official-Source-Monitor/1.0 (+public government source monitoring)","Accept":"text/html,application/pdf,*/*"},redirect:"follow",signal:AbortSignal.timeout(12000)});
           httpStatus=res.status;
           if (!res.ok) throw new Error("HTTP "+res.status);
           const contentType=res.headers.get("content-type")||"";
