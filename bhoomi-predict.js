@@ -8,6 +8,7 @@
   if(p.status==='Completed')return {days:0,low:0,high:0,coverage:'Closed',drivers:[],missing:[]};
   let total=0;const drivers=[];
   const add=(name,value,why)=>{const d=Math.max(0,Math.round(value));if(d){total+=d;drivers.push({name,days:d,why});}};
+  const govtEstimate=num('estimated_delay_days');if(govtEstimate!==null)add('Government-reason planning estimate',govtEstimate,'Scenario estimate based on the selected government-documented delay reason; not a verified actual delay');
   const approval=num('approval_delay_days');if(approval!==null)add('Approval backlog',approval*.55,approval+' recorded approval-delay days; partial carry-forward');
   const disputes=num('dispute_count');if(disputes!==null)add('Land disputes',Math.min(120,disputes*8),disputes+' disputes; up to 8 days each, capped');
   [['compensation_completion','Compensation',.55],['possession_progress','Possession',.7],['rehabilitation_progress','Rehabilitation',.25]].forEach(([key,label,weight])=>{const v=num(key);if(v!==null&&v<100)add(label+' pending',Math.min(120,(100-v)*weight),(100-v)+'% remains');});
@@ -25,7 +26,7 @@
   const host=document.getElementById('bhoomiPredictMount');if(!host)return;
   if(!supabaseClient||!currentUser){host.innerHTML='<p>Please sign in to calculate project forecasts.</p>';return;}
   host.innerHTML='<p style="color:#657087">Calculating project delay forecasts…</p>';
-  const fields='id,project_code,name,state,district,status,progress,expected_completion,approval_delay_days,dispute_count,compensation_completion,possession_progress,rehabilitation_progress,historical_department_delay_days';
+  const fields='id,project_code,name,state,district,status,progress,expected_completion,estimated_delay_days,acquisition_delay_reason,approval_delay_days,dispute_count,compensation_completion,possession_progress,rehabilitation_progress,historical_department_delay_days';
   const [projectResult,caseResult]=await Promise.all([supabaseClient.from('projects').select(fields).order('created_at',{ascending:false}),supabaseClient.from('legal_cases').select('project_id,status')]);
   const {data,error}=projectResult;
   if(error){host.innerHTML='<p style="color:#a33">Could not load project records: '+esc(error.message)+'</p>';return;}
