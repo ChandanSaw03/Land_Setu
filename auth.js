@@ -280,19 +280,5 @@ if (!configured) {
     setTimeout(() => handleAuthState(event, session), 0);
   });
 
-  // Explicitly request the current session as a fallback to the auth event.
-  // The active-user guard prevents duplicate dashboard initialization.
-  supabase.auth.getSession().then(({ data, error }) => {
-    if (error) throw error;
-    if (data?.session?.user) return handleAuthState("INITIAL_SESSION", data.session);
-    return handleAuthState("SIGNED_OUT", null);
-  }).catch((error) => {
-    if (!startupResolved) {
-      startupResolved = true;
-      clearTimeout(startupTimeout);
-      showAuthScreen("login");
-      showMessage(error?.message || "Unable to restore your session. Please sign in again.");
-    }
-  });
 
 }
