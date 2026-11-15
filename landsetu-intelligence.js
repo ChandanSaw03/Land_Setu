@@ -162,6 +162,8 @@
   #landsetuIntelligencePanel .ls-int-alert.high,#landsetuIntelligencePanel .ls-int-alert.critical{border-left-color:#c65d52}
   #landsetuIntelligencePanel .ls-int-alert p{font-size:12px;color:#68758a;margin:5px 0}
   #landsetuIntelligencePanel .ls-int-empty{color:#778397;font-size:13px;padding:12px 0}
+  #landsetuIntelligencePanel .ls-int-auto{display:flex;flex-direction:column;gap:5px;padding:12px 14px;margin:10px 0 14px;border:1px solid #dce8f5;border-radius:10px;background:#f5f9ff;color:#274466;font-size:12px}
+  #landsetuIntelligencePanel .ls-int-auto span{color:#64748b;line-height:1.5}
   #landsetuIntelligencePanel .ls-int-foot{font-size:11px;color:#7b8798;margin:12px 0}
   @media(max-width:600px){#landsetuIntelligencePanel .ls-int-row{flex-direction:column}#landsetuIntelligencePanel .ls-int-metric{text-align:left}}
   `;
