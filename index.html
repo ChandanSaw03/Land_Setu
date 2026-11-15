@@ -56,7 +56,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <main>
 <header class="topbar">
   <div class="global-search"><span>⌕</span><input id="globalSearch" placeholder="Search projects..."></div>
-  <div class="top-actions"><select class="pill-select" id="region"><option>All India</option><option>North India</option><option>West India</option><option>South India</option><option>East India</option></select><button class="icon-btn" id="notify" title="Notifications">♧<i class="dot" id="notifyBadge" style="display:none"></i></button><div class="profile"><div class="avatar">U</div><div><b>Account</b><small>Signed in</small></div></div></div>
+  <div class="top-actions"><select class="pill-select" id="region" aria-label="Filter projects by region"><option value="All India">All India</option><option value="North">North</option><option value="North-West">North-West</option><option value="North-East">North-East</option><option value="West">West</option><option value="Central">Central</option><option value="East">East</option><option value="South">South</option></select><button class="icon-btn" id="notify" title="Notifications">♧<i class="dot" id="notifyBadge" style="display:none"></i></button><div class="profile"><div class="avatar">U</div><div><b>Account</b><small>Signed in</small></div></div></div>
 </header>
 <div class="notification-panel" id="notificationPanel" aria-live="polite"></div>
 <section id="content"></section>
@@ -104,7 +104,7 @@ let projectMilestones=[];
 let acquisitionAwards=[];
 let acquisitionMilestones=[];
 let currentUser=null,supabaseClient=null,profileData=null,projectAssignments=new Set(),managerProfiles=[],profileDirectory=[];
-let page='dashboard',pageNo=1,filters={q:'',state:'',district:'',status:'',risk:''},locationPickerMap=null;
+let page='dashboard',pageNo=1,activeRegion='All India',filters={q:'',state:'',district:'',status:'',risk:''},locationPickerMap=null;
 const $=s=>document.querySelector(s);
 function currentRole(){return profileData?.role||'viewer'}
 function roleLabel(role=currentRole()){return ({national_admin:'National Admin',state_admin:'State Admin',project_manager:'Project Manager',analyst:'Analyst',viewer:'Viewer'})[role]||'Viewer'}
@@ -157,7 +157,16 @@ function dashboard(){
  const states=stateRiskSummary().slice(0,5);
  return `<div class="hero"><div><h1>LandSetu</h1><p>Predict · Plan · Prevent</p></div><div class="hero-art">🏛️</div></div>${statCards()}<div class="dashboard-grid"><div class="panel"><h3><span class="mini">♧</span>Project Risk by State</h3>${states.length?'<div class="state-list">'+states.map(x=>`<div class="state-row"><span>${x.state} <small>(${x.count})</small></span><div class="bar"><i style="width:${x.score}%"></i></div><b>${x.score}%</b></div>`).join('')+'</div>':'<p style="color:#657087">Add projects to see state-level risk summaries.</p>'}</div><div class="panel"><h3>▥　Recent Projects <a href="#" onclick="go('projects');return false" style="float:right;color:#1557c0;font-size:15px;text-decoration:none">View All →</a></h3>${recentRows()}</div></div>`
 }
-function filtered(){return projects.filter(p=>(!filters.q||(p.name+' '+p.id).toLowerCase().includes(filters.q.toLowerCase()))&&(!filters.state||p.state===filters.state)&&(!filters.district||p.district===filters.district)&&(!filters.status||p.status===filters.status)&&(!filters.risk||p.risk===filters.risk))}
+const REGION_STATES={
+ 'North':['Delhi','Uttar Pradesh','Uttarakhand','Himachal Pradesh','Jammu and Kashmir','Jammu & Kashmir','Ladakh'],
+ 'North-West':['Punjab','Haryana','Rajasthan','Chandigarh'],
+ 'North-East':['Assam','Arunachal Pradesh','Manipur','Meghalaya','Mizoram','Nagaland','Sikkim','Tripura'],
+ 'West':['Gujarat','Maharashtra','Goa','Dadra and Nagar Haveli and Daman and Diu'],
+ 'Central':['Madhya Pradesh','Chhattisgarh'],
+ 'East':['Bihar','Jharkhand','Odisha','West Bengal'],
+ 'South':['Andhra Pradesh','Karnataka','Kerala','Tamil Nadu','Telangana','Puducherry','Lakshadweep','Andaman and Nicobar Islands']
+};
+function filtered(){const regionStates=REGION_STATES[activeRegion];return projects.filter(p=>(!filters.q||(p.name+' '+p.id+' '+p.state+' '+p.district).toLowerCase().includes(filters.q.trim().toLowerCase()))&&(!regionStates||regionStates.some(s=>s.toLowerCase()===String(p.state||'').trim().toLowerCase()))&&(!filters.state||p.state===filters.state)&&(!filters.district||p.district===filters.district)&&(!filters.status||p.status===filters.status)&&(!filters.risk||p.risk===filters.risk))}
 function projectHistoricalDatasetPanel(){
  const rows=typeof LAND_CONFLICT_DATA!=='undefined'?LAND_CONFLICT_DATA:[];
  if(!rows.length)return '<div class="panel" style="margin:16px 0"><h3>Historical land-conflict reference</h3><p style="color:#657087">The historical reference module is still loading. Reopen Projects in a moment.</p></div>';
@@ -724,7 +733,20 @@ document.addEventListener('click',event=>{
  if(panel?.classList.contains('open')&&!panel.contains(event.target)&&!$('#notify').contains(event.target))panel.classList.remove('open');
 });
 
-$('#globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){filters.q=e.target.value;go('projects')}});
+const globalSearch=$('#globalSearch');
+globalSearch.addEventListener('input',e=>{
+ filters.q=e.target.value;
+ if(filters.q.trim()||page==='projects'){page='projects';pageNo=1;render();}
+});
+globalSearch.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();filters.q=e.target.value;page='projects';pageNo=1;render();}});
+globalSearch.addEventListener('search',e=>{filters.q=e.target.value;page='projects';pageNo=1;render();});
+$('#region').addEventListener('change',e=>{
+ activeRegion=e.target.value||'All India';
+ page='projects';pageNo=1;
+ filters.state='';filters.district='';
+ render();
+ window.scrollTo({top:0,behavior:'smooth'});
+});
 render();
 </script>
 <script type="module" src="./auth.js"></script>
