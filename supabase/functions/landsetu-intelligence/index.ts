@@ -58,11 +58,11 @@ Deno.serve(async (req) => {
     const allowed = ["national_admin","state_admin","project_manager","analyst"].includes(profile.role);
     if (!allowed) return json({error:"Your account is not permitted to run acquisition intelligence"},403);
     const canAccessProject = async (projectId) => {
-      if (profile.role === "national_admin" || profile.role === "analyst") return true;
+      if (profile.role === "national_admin") return true;
       if (!projectId) return false;
       const {data:project} = await admin.from("projects").select("id,state").eq("id",projectId).maybeSingle();
       if (!project) return false;
-      if (profile.role === "state_admin") return project.state === profile.assigned_state;
+      if (["state_admin","analyst","viewer"].includes(profile.role)) return project.state === profile.assigned_state;
       if (profile.role === "project_manager") {
         const {data:assignment} = await admin.from("project_assignments").select("project_id").eq("project_id",projectId).eq("user_id",user.id).maybeSingle();
         return !!assignment;
