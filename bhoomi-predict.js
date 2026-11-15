@@ -23,7 +23,7 @@
  }
  async function load(){
   const host=document.getElementById('bhoomiPredictMount');if(!host)return;
-  if(!window.supabaseClient||!window.currentUser){host.innerHTML='<p>Please sign in to calculate project forecasts.</p>';return;}
+  if(!supabaseClient||!currentUser){host.innerHTML='<p>Please sign in to calculate project forecasts.</p>';return;}
   host.innerHTML='<p style="color:#657087">Calculating project delay forecasts…</p>';
   const fields='id,project_code,name,state,district,status,progress,expected_completion,estimated_delay_days,approval_delay_days,dispute_count,compensation_completion,possession_progress,rehabilitation_progress,historical_department_delay_days';
   const {data,error}=await window.supabaseClient.from('projects').select(fields).order('created_at',{ascending:false});
@@ -43,8 +43,8 @@
   const first=content.querySelector('.panel');if(first)content.insertBefore(section,first);else content.prepend(section);
   document.getElementById('bhoomiRefresh').addEventListener('click',load);load();
  }
- const prior=window.render;
- if(typeof prior==='function')window.render=function(){prior();if(page==='ai-predictions')setTimeout(mount,0);};
+ const prior=render;
+ if(typeof prior==='function')render=function(){prior();if(page==='ai-predictions')setTimeout(mount,0);};
  document.addEventListener('click',e=>{if(e.target.closest('[data-page="ai-predictions"]'))setTimeout(mount,50);});
  document.addEventListener('DOMContentLoaded',()=>setTimeout(mount,50));
 })();
