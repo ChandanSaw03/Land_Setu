@@ -18,6 +18,8 @@ screen.id = "auth-screen";
 screen.innerHTML = `<div class="auth-card"><div class="auth-brand"><div class="mark" role="img" aria-label="Earth globe">🌍</div><h1>LandSetu</h1><p>Predict · Plan · Prevent</p></div><div id="auth-content"></div></div>`;
 app.before(screen);
 app.style.display = "none";
+app.style.visibility = "hidden";
+screen.innerHTML = `<div class="auth-card" role="status" aria-live="polite"><div class="auth-brand"><div class="mark" aria-hidden="true">🌍</div><h1>LandSetu</h1><p>Predict · Plan · Prevent</p></div><p class="auth-sub" style="text-align:center;margin:0">Checking your secure session…</p></div>`;
 
 const content = screen.querySelector("#auth-content");
 let mode = "login";
@@ -50,9 +52,9 @@ function escapeHtml(value) {
 function showAuthScreen(nextMode = "login") {
   activeUserId = null;
   app.style.display = "none";
+  app.style.visibility = "hidden";
   screen.style.display = "grid";
   mode = nextMode;
-  render();
 }
 
 if (!configured) {
@@ -203,6 +205,7 @@ if (!configured) {
 
     screen.style.display = "none";
     app.style.display = "grid";
+    app.style.visibility = "visible";
     window.dispatchEvent(new CustomEvent("landsetu:authenticated", { detail: { user, profile } }));
 
     document.querySelector("#auth-logout")?.addEventListener("click", async (event) => {
