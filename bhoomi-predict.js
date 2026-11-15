@@ -12,7 +12,6 @@
   const disputes=num('dispute_count');if(disputes!==null)add('Land disputes',Math.min(120,disputes*8),disputes+' disputes; up to 8 days each, capped');
   [['compensation_completion','Compensation',.55],['possession_progress','Possession',.7],['rehabilitation_progress','Rehabilitation',.25]].forEach(([key,label,weight])=>{const v=num(key);if(v!==null&&v<100)add(label+' pending',Math.min(120,(100-v)*weight),(100-v)+'% remains');});
   const historic=num('historical_department_delay_days');if(historic!==null)add('Department history',Math.min(45,historic*.2),historic+' historical delay days; partial carry-forward');
-  const entered=num('estimated_delay_days');if(entered!==null)add('Existing delay estimate',entered,'Previously recorded project estimate');
   let overdue=0;if(p.expected_completion){const due=new Date(p.expected_completion+'T00:00:00');if(!Number.isNaN(due.getTime())){const today=new Date();today.setHours(0,0,0,0);overdue=Math.max(0,Math.floor((today-due)/86400000));}}
   const progress=num('progress');if(overdue&&progress!==null&&progress<100)add('Past completion target',Math.min(180,overdue*(1-progress/100)),'Target passed by '+overdue+' days at '+progress+'% overall progress');
   total=Math.min(365,Math.round(total));
@@ -25,7 +24,7 @@
   const host=document.getElementById('bhoomiPredictMount');if(!host)return;
   if(!supabaseClient||!currentUser){host.innerHTML='<p>Please sign in to calculate project forecasts.</p>';return;}
   host.innerHTML='<p style="color:#657087">Calculating project delay forecasts…</p>';
-  const fields='id,project_code,name,state,district,status,progress,expected_completion,estimated_delay_days,approval_delay_days,dispute_count,compensation_completion,possession_progress,rehabilitation_progress,historical_department_delay_days';
+  const fields='id,project_code,name,state,district,status,progress,expected_completion,approval_delay_days,dispute_count,compensation_completion,possession_progress,rehabilitation_progress,historical_department_delay_days';
   const {data,error}=await window.supabaseClient.from('projects').select(fields).order('created_at',{ascending:false});
   if(error){host.innerHTML='<p style="color:#a33">Could not load project records: '+esc(error.message)+'</p>';return;}
   if(!data?.length){host.innerHTML='<p>No projects are available for prediction yet.</p>';return;}
