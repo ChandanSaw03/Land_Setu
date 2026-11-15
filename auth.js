@@ -252,20 +252,24 @@ if (!configured) {
   }, 12000);
 
   async function handleAuthState(event, session) {
-    if (!startupResolved) {
+    if (event === "PASSWORD_RECOVERY") {
       startupResolved = true;
       clearTimeout(startupTimeout);
-    }
-    if (event === "PASSWORD_RECOVERY") {
       showAuthScreen("recovery");
     } else if (session?.user) {
       try {
         await enterApp(session.user);
+        startupResolved = true;
+        clearTimeout(startupTimeout);
       } catch (error) {
+        startupResolved = true;
+        clearTimeout(startupTimeout);
         showAuthScreen("login");
         showMessage(error?.message || "Could not load your account. Please try again.");
       }
     } else {
+      startupResolved = true;
+      clearTimeout(startupTimeout);
       window.dispatchEvent(new CustomEvent("landsetu:signedout"));
       showAuthScreen("login");
     }
