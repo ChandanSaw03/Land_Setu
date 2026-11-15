@@ -2,7 +2,7 @@
 (function(){
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const fmt=v=>v?new Date(v).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}):'Not scanned yet';
-  let loading=false,projects=[],sources=[],documents=[],predictions=[],alerts=[];
+  let loading=false,projects=[],parcels=[],sources=[],documents=[],predictions=[],alerts=[];
   let lastAutoScan=0;
   const invoke=async(body)=>{
     if(!supabaseClient||!currentUser)throw new Error('Please sign in first.');
@@ -15,12 +15,14 @@
     if(!supabaseClient||!currentUser)return;
     const queries=await Promise.all([
       supabaseClient.from('projects').select('id,name,project_code,state,district').order('name'),
+      supabaseClient.from('land_parcels').select('id,project_id,parcel_number,survey_number,village,acquisition_status,area_acres').order('survey_number').limit(500),
       supabaseClient.from('intelligence_sources').select('*').order('name'),
+      supabaseClient.from('land_parcels').select('id,project_id,parcel_number,survey_number,village,acquisition_status,area_acres').order('survey_number').limit(500),
       supabaseClient.from('intelligence_documents').select('id,title,source_url,document_type,extraction_status,verification_status,published_on,created_at,project_id').order('created_at',{ascending:false}).limit(15),
       supabaseClient.from('ai_delay_predictions').select('*').order('generated_at',{ascending:false}).limit(12),
       supabaseClient.from('intelligence_alerts').select('*').order('created_at',{ascending:false}).limit(15)
     ]);
-    [projects,sources,documents,predictions,alerts]=queries.map((r,i)=>r.error?(i===0?[]:[]):r.data||[]);
+    [projects,parcels,sources,documents,predictions,alerts]=queries.map((r)=>r.error?[]:r.data||[]);
     draw();
     const due=sources.some(s=>s.enabled&&(!s.last_checked_at||(Date.now()-new Date(s.last_checked_at).getTime())>24*60*60*1000));
     if(due && Date.now()-lastAutoScan>10*60*1000 && ['national_admin','state_admin','project_manager','analyst'].includes(currentRole())){
@@ -33,7 +35,8 @@
     const canRun=['national_admin','state_admin','project_manager','analyst'].includes(currentRole());
     const canVerify=['national_admin','state_admin'].includes(currentRole());
     const projectOptions=projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name||p.project_code)+' · '+esc([p.district,p.state].filter(Boolean).join(', '))+'</option>').join('');
-    const latest=predictions.slice(0,6).map(p=>'<div class="ls-int-row"><div><b>'+esc((projects.find(x=>x.id===p.project_id)||{}).name||'Project forecast')+'</b><small>'+fmt(p.generated_at)+' · '+esc(p.model_version)+'</small><p>'+esc(p.explanation||'No explanation returned')+'</p></div><div class="ls-int-metric"><b>'+(p.predicted_additional_days==null?'—':p.predicted_additional_days+' days')+'</b><span>'+esc(p.risk_level||'Unknown')+' risk</span><small>Range '+(p.range_min_days??'—')+'–'+(p.range_max_days??'—')+' days</small></div></div>').join('')||'<p class="ls-int-empty">No AI forecasts yet. Select a project and run Bhoomi Predict.</p>';
+    const parcelOptions=parcels.map(p=>'<option value="'+esc(p.id)+'">'+esc('Survey '+(p.survey_number||p.parcel_number||'—')+' · '+(p.village||'Village not set')+' · '+((projects.find(x=>x.id===p.project_id)||{}).name||'Project'))+'</option>').join('');
+    const latest=predictions.slice(0,6).map(p=>{const parcel=parcels.find(x=>x.id===p.parcel_id);const label=p.parcel_id?'Parcel · Survey '+(parcel?.survey_number||parcel?.parcel_number||'record')+' / '+((projects.find(x=>x.id===p.project_id)||{}).name||'Project'):(projects.find(x=>x.id===p.project_id)||{}).name||'Project forecast';return '<div class="ls-int-row"><div><b>'+esc(label)+'</b><small>'+fmt(p.generated_at)+' · '+esc(p.model_version)+'</small><p>'+esc(p.explanation||'No explanation returned')+'</p></div><div class="ls-int-metric"><b>'+(p.predicted_additional_days==null?'—':p.predicted_additional_days+' days')+'</b><span>'+esc(p.risk_level||'Unknown')+' risk</span><small>Range '+(p.range_min_days??'—')+'–'+(p.range_max_days??'—')+' days</small></div></div>';}).join('')||'<p class="ls-int-empty">No AI forecasts yet. Select a project or parcel and run Bhoomi Predict.</p>';
     const sourceRows=sources.map(s=>'<div class="ls-int-source"><div><b>'+esc(s.name)+'</b><small>'+esc(s.url)+'</small></div><div><span class="ls-int-state '+(s.last_status==='ok'?'ok':s.last_status==='error'?'bad':'')+'">'+esc(s.last_status||'Not scanned')+'</span><small>'+fmt(s.last_checked_at)+'</small></div></div>').join('');
     const docRows=documents.map(d=>'<div class="ls-int-row"><div><b>'+esc(d.title)+'</b><small>'+esc(d.document_type||'Government document')+' · '+fmt(d.created_at)+'</small><p><span class="ls-int-tag">'+esc(d.extraction_status)+'</span> <span class="ls-int-tag">'+esc(d.verification_status)+'</span></p>'+(d.source_url?'<a href="'+esc(d.source_url)+'" target="_blank" rel="noopener">Open source document ↗</a>':'')+'</div><div class="ls-int-actions">'+(canVerify&&d.verification_status==='unverified'?'<button data-verify="'+esc(d.id)+'" data-decision="verified">Verify</button><button class="quiet" data-verify="'+esc(d.id)+'" data-decision="rejected">Reject</button>':'')+'</div></div>').join('')||'<p class="ls-int-empty">No documents discovered or analysed yet.</p>';
     const alertRows=alerts.map(a=>'<div class="ls-int-alert '+esc(a.severity)+'"><b>'+esc(a.title)+'</b><p>'+esc(a.message)+'</p><small>'+fmt(a.created_at)+' · '+esc(a.severity)+'</small></div>').join('')||'<p class="ls-int-empty">No intelligence alerts yet.</p>';
@@ -41,7 +44,7 @@
       '<div class="ls-int-actionsbar"><button class="primary" id="lsIntScan" '+(!canRun?'disabled':'')+'>⌕ Scan official sources</button><span id="lsIntStatus" aria-live="polite">Source scans run on demand and when a source is due for refresh.</span></div>'+
       '<div class="ls-int-grid"><section class="panel"><h3>1 · Government data sources</h3><p class="ls-int-muted">Official portals and guidance pages. A discovered link is not treated as verified parcel data.</p>'+sourceRows+'</section>'+
       '<section class="panel"><h3>2 · Document intelligence</h3><p class="ls-int-muted">Upload a text-readable PDF. AI extracts sections, survey numbers, villages, areas, parties and dates from text-based or scanned PDFs (OCR on the first 8 pages). Discovered source links can be downloaded and uploaded here for extraction.</p><div class="ls-int-upload"><label>Link document to project (optional)<select id="lsIntProject"><option value="">Auto-match / Unassigned</option>'+projectOptions+'</select></label><input id="lsIntFile" type="file" accept="application/pdf,.pdf"><button class="primary" id="lsIntAnalyze" '+(!canRun?'disabled':'')+'>Extract document facts</button></div><div class="ls-int-docs">'+docRows+'</div></section></div>'+
-      '<section class="panel ls-int-predict"><div class="ls-int-toolbar"><div><h3>3–5 · Bhoomi Predict: project delay and risk</h3><p class="ls-int-muted">AI analyses linked parcels, disputes, milestones, awards and project stage. Missing evidence is reported, not invented.</p></div></div><div class="ls-int-runrow"><select id="lsIntForecastProject"><option value="">Select project</option>'+projectOptions+'</select><button class="primary" id="lsIntPredict" '+(!canRun?'disabled':'')+'>Predict selected project</button><button class="secondary" id="lsIntPredictAll" '+(!canRun?'disabled':'')+'>Predict all projects</button></div>'+latest+'</section>'+
+      '<section class="panel ls-int-predict"><div class="ls-int-toolbar"><div><h3>3–5 · Bhoomi Predict: project and parcel delay</h3><p class="ls-int-muted">AI analyses project stage, parcel notices, ownership, objections, linked disputes, awards, compensation and verified documents. Missing evidence is reported, not invented.</p></div></div><div class="ls-int-runrow"><select id="lsIntForecastProject"><option value="">Select project</option>'+projectOptions+'</select><button class="primary" id="lsIntPredict" '+(!canRun?'disabled':'')+'>Predict selected project</button><button class="secondary" id="lsIntPredictAll" '+(!canRun?'disabled':'')+'>Predict all projects</button></div><div class="ls-int-runrow"><select id="lsIntForecastParcel"><option value="">Select parcel / survey number</option>'+parcelOptions+'</select><button class="primary" id="lsIntPredictParcel" '+(!canRun?'disabled':'')+'>Predict selected parcel</button></div>'+latest+'</section>'+
       '<div class="ls-int-grid"><section class="panel"><h3>6 · Risk and government update alerts</h3>'+alertRows+'</section><section class="panel"><h3>7 · Admin verification</h3><p class="ls-int-muted">AI-extracted records remain unverified until an authorised state or national administrator reviews the source and approves them.</p><div class="ls-int-docs">'+docRows+'</div></section></div>'+
       '<p class="ls-int-foot">AI provider: OpenAI API via a protected Supabase Edge Function. Add OPENAI_API_KEY in Supabase → Edge Functions → Secrets to enable document extraction and AI forecasts; scheduled source monitoring works without it. Predictions are estimates, not legal determinations or guaranteed completion dates. Source access and document quality vary by government portal.</p>';
     document.getElementById('lsIntRefresh')?.addEventListener('click',refresh);
@@ -49,6 +52,7 @@
     document.getElementById('lsIntAnalyze')?.addEventListener('click',analyze);
     document.getElementById('lsIntPredict')?.addEventListener('click',()=>predictOne(document.getElementById('lsIntForecastProject')?.value));
     document.getElementById('lsIntPredictAll')?.addEventListener('click',predictAll);
+    document.getElementById('lsIntPredictParcel')?.addEventListener('click',()=>predictParcel(document.getElementById('lsIntForecastParcel')?.value));
     host.querySelectorAll('[data-verify]').forEach(btn=>btn.addEventListener('click',()=>verify(btn.dataset.verify,btn.dataset.decision)));
   }
   function status(message){const el=document.getElementById('lsIntStatus');if(el)el.textContent=message;}
@@ -65,7 +69,7 @@
       supabaseClient.from('ai_delay_predictions').select('*').order('generated_at',{ascending:false}).limit(12),
       supabaseClient.from('intelligence_alerts').select('*').order('created_at',{ascending:false}).limit(15)
     ]);
-    sources=r[0].data||[];documents=r[1].data||[];predictions=r[2].data||[];alerts=r[3].data||[];draw();
+    sources=r[0].data||[];parcels=r[1].data||[];documents=r[2].data||[];predictions=r[3].data||[];alerts=r[4].data||[];draw();
   }
   async function analyze(){
     const file=document.getElementById('lsIntFile')?.files?.[0];if(!file){status('Choose a PDF first.');return;}
@@ -99,6 +103,13 @@
     loading=true;status('Bhoomi Predict is analysing project, parcel, legal and acquisition records…');
     try{const r=await invoke({action:'predict_project',project_id:id});status('AI forecast saved. Estimated additional delay: '+(r.prediction.predicted_additional_days??'insufficient data')+' days.');await refreshNoAuto();}
     catch(e){status('AI prediction failed: '+e.message);}
+    finally{loading=false;}
+  }
+  async function predictParcel(id){
+    if(!id){status('Select a parcel or survey number first.');return;}
+    loading=true;status('Bhoomi Predict is analysing this parcel, its legal cases, acquisition notices and verified documents…');
+    try{const r=await invoke({action:'predict_parcel',parcel_id:id});status('Parcel forecast saved. Estimated additional delay: '+(r.prediction.predicted_additional_days??'insufficient data')+' days.');await refreshNoAuto();}
+    catch(e){status('Parcel prediction failed: '+e.message);}
     finally{loading=false;}
   }
   async function predictAll(){
