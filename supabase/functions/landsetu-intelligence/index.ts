@@ -97,12 +97,16 @@ Deno.serve(async (req) => {
           const contentType=res.headers.get("content-type")||"";
           if (contentType.includes("pdf") || source.url.toLowerCase().endsWith(".pdf")) {
             const hash=await sha256(source.url);
-            const {error:docError}=await admin.from("intelligence_documents").upsert({
+            const {data:newDoc,error:docError}=await admin.from("intelligence_documents").upsert({
               source_id:source.id,title:source.name+" · source document",source_url:source.url,
               document_type:"official_guideline",document_hash:hash,extraction_status:"pending"
-            },{onConflict:"source_url,document_hash",ignoreDuplicates:true});
+            },{onConflict:"source_url,document_hash",ignoreDuplicates:true}).select("id").maybeSingle();
             if(docError) throw docError;
-            found=1; summary="Official PDF source is reachable; queued for document review/extraction.";
+            if(newDoc){
+              found=1;
+              await admin.from("intelligence_alerts").insert({alert_type:"official_document_discovered",severity:"medium",title:"New official source document discovered",message:"A new official PDF source was added to the document review queue. Download it, upload it in Document Intelligence, and verify extracted facts.",evidence_url:source.url});
+            }
+            summary="Official PDF source is reachable; new links are queued for document review/extraction.";
           } else {
             const html=(await res.text()).slice(0,1500000);
             const anchors=[...html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
@@ -118,12 +122,16 @@ Deno.serve(async (req) => {
             }
             for(const item of candidates.slice(0,40)){
               const hash=await sha256(item.url);
-              const {error:docError}=await admin.from("intelligence_documents").upsert({
+              const {data:newDoc,error:docError}=await admin.from("intelligence_documents").upsert({
                 source_id:source.id,title:clean(item.label||"Government notice",240),source_url:item.url,
                 document_type:/\.pdf(?:\?|$)/i.test(item.url)?"gazette_or_notice":"source_listing",
                 document_hash:hash,extraction_status:"pending"
-              },{onConflict:"source_url,document_hash",ignoreDuplicates:true});
-              if(!docError) found++;
+              },{onConflict:"source_url,document_hash",ignoreDuplicates:true}).select("id").maybeSingle();
+              if(docError) throw docError;
+              if(newDoc){
+                found++;
+                await admin.from("intelligence_alerts").insert({alert_type:"official_document_discovered",severity:"medium",title:"New official acquisition notice discovered",message:clean(item.label||"A new official acquisition notice was discovered. Download and upload it for AI extraction and verification.",1200),evidence_url:item.url});
+              }
             }
             summary="Source page fetched. "+found+" potentially relevant notice/document links discovered; page text is not treated as verified parcel data.";
           }
@@ -143,9 +151,15 @@ Deno.serve(async (req) => {
         "You are a careful Indian land-acquisition document analyst. Extract only facts explicitly supported by the supplied document text or page images. The images may be scanned Gazette pages; read printed tables and handwritten notes only when clearly legible. Never infer an owner, survey number, area, award, case status or legal outcome. Return valid JSON with keys: document_type, title, notification_number, statutory_section, published_date (YYYY-MM-DD or null), state, district, tehsil, villages (array), survey_numbers (array of strings), land_areas (array of {survey_number,area,unit,land_type,ownership}), named_parties (array), case_numbers (array), important_dates (array of {date,event}), project_names (array), summary, potential_alerts (array of {severity,title,message,related_survey_number}). Put uncertain items in an uncertainties array. Use null/empty arrays when absent. Include a short source_quote for every key fact where possible.",images);
       let projectId=body.project_id||null, parcelId=body.parcel_id||null;
       const projectName=Array.isArray(extracted.project_names)?extracted.project_names[0]:null;
+      if(parcelId){
+        const {data:parcel,error:parcelLookupError}=await admin.from("land_parcels").select("id,project_id").eq("id",parcelId).maybeSingle();
+        if(parcelLookupError || !parcel) throw new Error("Selected parcel could not be found.");
+        if(projectId && parcel.project_id!==projectId) throw new Error("The selected parcel does not belong to the selected project.");
+        projectId=projectId||parcel.project_id;
+      }
       if(!projectId && projectName){
         const {data:projects}=await admin.from("projects").select("id,name,project_code,state,district");
-        const match=(projects||[]).find(p=>text.toLowerCase().includes(String(p.name||"").toLowerCase()) || (p.project_code && text.toLowerCase().includes(p.project_code.toLowerCase())));
+        const match=(projects||[]).find(p=>(p.name && text.toLowerCase().includes(String(p.name).toLowerCase())) || (p.project_code && text.toLowerCase().includes(p.project_code.toLowerCase())));
         if(match) projectId=match.id;
       }
       if(projectId && !(await canAccessProject(projectId))) return json({error:"You do not have access to the selected project."},403);
