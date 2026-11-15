@@ -1,0 +1,2 @@
+select cron.unschedule(jobid) from cron.job where jobname='landsetu-source-change-fingerprint';
+select cron.schedule('landsetu-source-change-fingerprint','20 3 * * *','select private.scan_landsetu_sources();');
