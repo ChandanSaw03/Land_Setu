@@ -248,6 +248,7 @@ if (!configured) {
     if (startupResolved) return;
     startupResolved = true;
     showAuthScreen("login");
+    render();
     showMessage("We couldn't verify your saved session. Please sign in again. Your account and project data have not been changed.");
   }, 12000);
 
@@ -256,6 +257,7 @@ if (!configured) {
       startupResolved = true;
       clearTimeout(startupTimeout);
       showAuthScreen("recovery");
+      render();
     } else if (session?.user) {
       try {
         await enterApp(session.user);
@@ -265,6 +267,7 @@ if (!configured) {
         startupResolved = true;
         clearTimeout(startupTimeout);
         showAuthScreen("login");
+        render();
         showMessage(error?.message || "Could not load your account. Please try again.");
       }
     } else {
@@ -272,6 +275,7 @@ if (!configured) {
       clearTimeout(startupTimeout);
       window.dispatchEvent(new CustomEvent("landsetu:signedout"));
       showAuthScreen("login");
+      render();
     }
   }
 
@@ -279,6 +283,23 @@ if (!configured) {
     // Defer Supabase calls until its internal auth-state lock is released.
     setTimeout(() => handleAuthState(event, session), 0);
   });
+
+  // Explicitly restore the initial session as a fallback to the auth event.
+  // This also ensures a fresh visitor gets the actual login form, not the splash.
+  (async () => {
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
+      if (!startupResolved) await handleAuthState("INITIAL_SESSION", data.session);
+    } catch (error) {
+      if (startupResolved) return;
+      startupResolved = true;
+      clearTimeout(startupTimeout);
+      showAuthScreen("login");
+      render();
+      showMessage(error?.message || "Session verification failed. Please sign in again.");
+    }
+  })();
 
 
 }
