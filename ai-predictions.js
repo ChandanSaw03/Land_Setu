@@ -118,56 +118,50 @@ let aiProjectLoadError='';
 let aiProjectLoadToken=0;
 
 function aiProjectAssessment(p) {
-  const reasons=[];
+  const fields=['status','progress','approval_delay_days','dispute_count','compensation_completion','possession_progress','rehabilitation_progress','historical_department_delay_days','expected_completion','source_updated_at'];
+  const present=k=>p[k]!==null&&p[k]!==undefined&&p[k]!=='';
+  const missing=fields.filter(k=>!present(k));
+  const factors=[];
   let score=0;
-  let available=0;
-  const fields=['status','progress','approval_delay_days','dispute_count','compensation_completion','possession_progress','rehabilitation_progress','historical_department_delay_days','expected_completion'];
-  fields.forEach(k=>{if(p[k]!==null&&p[k]!==undefined&&p[k]!=='')available++;});
-  const add=(points,reason)=>{score+=points;reasons.push(reason);};
-  if(p.status==='Completed') return {score:0,level:'Low',coverage:available,total:fields.length,reasons:['Project is marked completed.'],action:'Keep closure records and final compliance evidence up to date.'};
-  if(p.status==='On Hold') add(28,'Project is currently on hold.');
-  else if(p.status==='At Risk') add(20,'Project status is marked at risk.');
-  else if(p.status==='In Progress') add(6,'Project is still in progress.');
-  if(Number.isFinite(Number(p.approval_delay_days))&&p.approval_delay_days!==null){
-    const d=Number(p.approval_delay_days);
-    if(d>90)add(20,'Approval delay exceeds 90 days.');
-    else if(d>30)add(12,'Approval delay exceeds 30 days.');
-    else if(d>0)add(5,'Approval delay has been recorded.');
+  const add=(key,label,points,detail,action)=>{
+    if(points>0){score+=points;factors.push({key,label,points,detail,action});}
+  };
+  if(p.status==='Completed'){
+    return {score:0,level:'Low',coverage:fields.length-missing.length,total:fields.length,coveragePct:Math.round((fields.length-missing.length)/fields.length*100),missing,reasons:['Project is marked completed.'],factors:[],action:'Keep closure records and final compliance evidence up to date.',priority:'Routine'};
   }
-  if(Number.isFinite(Number(p.dispute_count))&&p.dispute_count!==null){
-    const d=Number(p.dispute_count);
-    if(d>=10)add(18,'10 or more disputes are recorded.');
-    else if(d>=3)add(12,'Multiple land disputes are recorded.');
-    else if(d>0)add(5,'At least one land dispute is recorded.');
-  }
+  if(p.status==='On Hold')add('status','Project status',24,'Project is currently on hold.','Confirm the hold reason, accountable authority and restart conditions.');
+  else if(p.status==='At Risk')add('status','Project status',18,'Project status is marked at risk.','Review the latest blocker and assign an owner with a due date.');
+  else if(p.status==='In Progress')add('status','Project status',4,'Project remains in progress.','Keep milestones and dependencies updated.');
+  const numeric=(key)=>present(key)&&Number.isFinite(Number(p[key]))?Number(p[key]):null;
+  const delay=numeric('approval_delay_days');
+  if(delay!==null){if(delay>90)add('approval','Approval delay',18,delay+' days of approval delay are recorded.','Escalate the pending approval and record the responsible department.');else if(delay>30)add('approval','Approval delay',11,delay+' days of approval delay are recorded.','Set a dated approval follow-up with the responsible department.');else if(delay>0)add('approval','Approval delay',4,delay+' days of approval delay are recorded.','Track the pending approval at the next review.');}
+  const disputes=numeric('dispute_count');
+  if(disputes!==null){if(disputes>=10)add('disputes','Land disputes',18,disputes+' disputes are recorded.','Prioritise the dispute register and assign resolution owners.');else if(disputes>=3)add('disputes','Land disputes',12,disputes+' disputes are recorded.','Review pending disputes and set resolution dates.');else if(disputes>0)add('disputes','Land disputes',5,disputes+' dispute(s) are recorded.','Confirm the current status of each recorded dispute.');}
   for(const [key,label] of [['compensation_completion','Compensation'],['possession_progress','Possession'],['rehabilitation_progress','Rehabilitation']]){
-    if(p[key]!==null&&p[key]!==undefined&&p[key]!==''){
-      const v=Math.max(0,Math.min(100,Number(p[key])));
-      if(v<30)add(12,label+' progress is below 30%.');
-      else if(v<60)add(7,label+' progress is below 60%.');
-    }
+    const v=numeric(key);
+    if(v!==null){const bounded=Math.max(0,Math.min(100,v));if(bounded<30)add(key,label+' progress',12,label+' completion is '+bounded+'%.','Review '+label.toLowerCase()+' bottlenecks and publish a dated recovery plan.');else if(bounded<60)add(key,label+' progress',7,label+' completion is '+bounded+'%.','Monitor '+label.toLowerCase()+' milestones and unblock pending actions.');}
   }
-  if(p.historical_department_delay_days!==null&&p.historical_department_delay_days!==undefined){
-    const d=Number(p.historical_department_delay_days);
-    if(d>90)add(10,'Historical departmental delays exceed 90 days.');
-    else if(d>30)add(5,'Historical departmental delays exceed 30 days.');
-  }
+  const historic=numeric('historical_department_delay_days');
+  if(historic!==null){if(historic>90)add('historic','Historical department delays',9,'Historical departmental delay is '+historic+' days.','Check whether the same department dependency is affecting the current schedule.');else if(historic>30)add('historic','Historical department delays',5,'Historical departmental delay is '+historic+' days.','Track the department dependency in the next review.');}
+  const progress=numeric('progress')??0;
   if(p.expected_completion){
     const due=new Date(p.expected_completion+'T00:00:00');
-    const now=new Date(); now.setHours(0,0,0,0);
-    const days=Math.ceil((due-now)/86400000);
-    if(days<0 && Number(p.progress||0)<100)add(18,'Expected completion date has passed while progress is below 100%.');
-    else if(days<=90 && Number(p.progress||0)<70)add(8,'Completion is due within 90 days but progress is below 70%.');
+    if(!Number.isNaN(due.getTime())){const now=new Date();now.setHours(0,0,0,0);const days=Math.ceil((due-now)/86400000);
+      if(days<0&&progress<100)add('schedule','Schedule slippage',16,'Expected completion passed '+Math.abs(days)+' days ago; recorded progress is '+progress+'%.','Re-baseline the schedule and document the critical path.');
+      else if(days<=90&&progress<70)add('schedule','Schedule pressure',8,'Completion is due in '+days+' days with '+progress+'% progress.','Review remaining milestones and confirm a realistic completion plan.');
+    }
   }
   score=Math.max(0,Math.min(100,Math.round(score)));
-  const level=score>=75?'Critical':score>=50?'High':score>=25?'Medium':'Low';
-  let action='Continue routine monitoring and keep project records current.';
-  if(reasons.some(x=>x.includes('dispute')))action='Review pending disputes and assign a resolution owner with target dates.';
-  else if(reasons.some(x=>x.includes('Compensation')))action='Review compensation cases and prioritise pending payments.';
-  else if(reasons.some(x=>x.includes('Approval')))action='Escalate pending approvals and record the responsible department.';
-  else if(reasons.some(x=>x.includes('Rehabilitation')||x.includes('Possession')))action='Review possession and rehabilitation milestones with the field team.';
-  else if(score>=25)action='Review the project schedule and record the causes of delay.';
-  return {score,level,coverage:available,total:fields.length,reasons:reasons.length?reasons:['No major risk trigger found in the available fields.'],action};
+  const level=score>=70?'Critical':score>=50?'High':score>=25?'Medium':'Low';
+  const priority=level==='Critical'?'Immediate':level==='High'?'High':level==='Medium'?'Watch':'Routine';
+  const ordered=[...factors].sort((a,b)=>b.points-a.points);
+  const action=ordered[0]?.action||'Continue routine monitoring and keep project records current.';
+  const freshness=present('source_updated_at')?Math.floor((Date.now()-new Date(p.source_updated_at).getTime())/86400000):null;
+  const freshnessLabel=freshness===null?'Update date missing':freshness<0?'Date needs review':freshness<=30?'Updated within 30 days':freshness<=90?'Update is 31–90 days old':'Update is over 90 days old';
+  return {score,level,priority,coverage:fields.length-missing.length,total:fields.length,coveragePct:Math.round((fields.length-missing.length)/fields.length*100),missing,factors:ordered,reasons:ordered.map(x=>x.detail).concat(ordered.length?[]:['No major risk trigger found in the available fields.']),action,freshnessLabel};
+}
+function aiProjectPriority(a){
+  return a.level==='Critical'?0:a.level==='High'?1:a.level==='Medium'?2:3;
 }
 async function aiFetchProjectRows(){
   const token=++aiProjectLoadToken;
@@ -193,19 +187,26 @@ aiPredictionPage=function(){
   const historical=aiHistoricalPredictionPage();
   let live='';
   if(aiProjectLoadState==='loading'||aiProjectLoadState==='idle'){
-    live='<div class="panel" style="margin:16px 0"><h3>Live project risk assessment</h3><p style="color:#657087">Loading project records from Supabase…</p></div>';
+    live='<div class="panel" style="margin:16px 0"><h3>Live project risk intelligence</h3><p style="color:#657087">Loading current project records from Supabase…</p></div>';
   }else if(aiProjectLoadState==='error'){
     live='<div class="panel" style="margin:16px 0;border-left:4px solid #c65d5d"><h3>Could not load live project records</h3><p>'+aiEscape(aiProjectLoadError)+'</p><button class="secondary" id="aiProjectRefresh">Try again</button></div>';
   }else{
-    const rows=aiProjectRows.map(p=>({p,a:aiProjectAssessment(p)}));
+    const rows=aiProjectRows.map(p=>({p,a:aiProjectAssessment(p)})).sort((x,y)=>aiProjectPriority(x.a)-aiProjectPriority(y.a)||y.a.score-x.a.score);
     const counts={Critical:0,High:0,Medium:0,Low:0};
     rows.forEach(x=>counts[x.a.level]++);
-    const cards=rows.length?rows.map(({p,a})=>{
+    const avgCoverage=rows.length?Math.round(rows.reduce((n,x)=>n+x.a.coveragePct,0)/rows.length):0;
+    const averageScore=rows.length?Math.round(rows.reduce((n,x)=>n+x.a.score,0)/rows.length):0;
+    const topDrivers={};
+    rows.forEach(x=>x.a.factors.slice(0,2).forEach(f=>topDrivers[f.label]=(topDrivers[f.label]||0)+1));
+    const driverRows=Object.entries(topDrivers).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const driverHtml=driverRows.length?driverRows.map(([label,count])=>'<div class="bar-row"><span>'+aiEscape(label)+'</span><div class="bar"><i style="width:'+Math.round(count/Math.max(1,rows.length)*100)+'%"></i></div><b>'+count+'</b></div>').join(''):'<p style="color:#657087">No active risk drivers are present in the current records.</p>';
+    const cards=rows.length?rows.map(({p,a},idx)=>{
       const reasons=a.reasons.map(r=>'<li>'+aiEscape(r)+'</li>').join('');
-      const coverage=a.coverage+'/'+a.total;
-      return '<article class="panel" style="min-width:0"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><h3 style="margin:0 0 4px">'+aiEscape(p.name||p.project_code||'Unnamed project')+'</h3><p style="margin:0;color:#657087;font-size:13px">'+aiEscape([p.district,p.state].filter(Boolean).join(', ')||'Location not set')+'</p></div><span class="status '+(a.level==='Critical'||a.level==='High'?'risk':a.level==='Low'?'track':'medium')+'">'+a.level+' risk</span></div><div style="display:flex;align-items:baseline;gap:8px;margin:18px 0 4px"><strong style="font-size:34px">'+a.score+'</strong><span style="color:#657087">/100 risk index</span></div><div style="height:8px;background:#edf1f6;border-radius:99px;overflow:hidden"><div style="height:100%;width:'+a.score+'%;background:'+(a.score>=75?'#bd5b54':a.score>=50?'#d18b43':a.score>=25?'#c4a34d':'#4e9a78')+'"></div></div><p style="font-size:12px;color:#657087;margin:8px 0">Input coverage: '+coverage+' fields · '+(p.source_verified?'Source marked verified':'Source not verified')+'</p><b style="font-size:13px">Factors considered</b><ul style="margin:6px 0 12px;padding-left:18px;color:#596579;font-size:13px;line-height:1.6">'+reasons+'</ul><div style="padding:10px;background:#f5f8fc;border-radius:9px;font-size:13px"><b>Suggested review:</b> '+aiEscape(a.action)+'</div></article>';
+      const factors=a.factors.length?a.factors.map(f=>'<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid #edf0f5;font-size:13px"><span><b>'+aiEscape(f.label)+'</b><br><span style="color:#657087">'+aiEscape(f.detail)+'</span></span><b style="white-space:nowrap;color:#a65b37">+'+f.points+'</b></div>').join(''):'<p style="color:#657087;font-size:13px">No active scoring triggers.</p>';
+      return '<article class="panel" style="min-width:0"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><span style="font-size:11px;color:#657087;font-weight:700">PRIORITY #'+(idx+1)+'</span><h3 style="margin:3px 0 4px">'+aiEscape(p.name||p.project_code||'Unnamed project')+'</h3><p style="margin:0;color:#657087;font-size:13px">'+aiEscape([p.district,p.state].filter(Boolean).join(', ')||'Location not set')+'</p></div><span class="status '+(a.level==='Critical'||a.level==='High'?'risk':a.level==='Low'?'track':'medium')+'">'+a.level+' risk</span></div><div style="display:flex;align-items:baseline;gap:8px;margin:16px 0 4px"><strong style="font-size:34px">'+a.score+'</strong><span style="color:#657087">/100 risk index</span><span style="margin-left:auto;font-size:12px;font-weight:700;color:#657087">'+a.priority+' priority</span></div><div style="height:8px;background:#edf1f6;border-radius:99px;overflow:hidden"><div style="height:100%;width:'+a.score+'%;background:'+(a.score>=70?'#bd5b54':a.score>=50?'#d18b43':a.score>=25?'#c4a34d':'#4e9a78')+'"></div></div><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:9px 0 12px;font-size:12px;color:#657087"><span>Data coverage: '+a.coverage+'/'+a.total+' ('+a.coveragePct+'%)</span><span>'+aiEscape(a.freshnessLabel||'Update date missing')+'</span></div><details><summary style="cursor:pointer;color:#1557c0;font-weight:650;font-size:13px">View risk drivers and evidence ('+a.factors.length+')</summary><div style="margin-top:8px">'+factors+'</div></details><div style="padding:11px;background:#f5f8fc;border-radius:9px;font-size:13px;margin-top:12px"><b>Recommended next action:</b> '+aiEscape(a.action)+'</div>'+(a.missing.length?'<p style="font-size:12px;color:#9a6b2d;margin:10px 0 0">Missing inputs: '+aiEscape(a.missing.join(', '))+'</p>':'')+'</article>';
     }).join(''):'<div class="panel"><h3>No project records found</h3><p style="color:#657087">Add projects to LandSetu to generate project-level assessments.</p></div>';
-    live='<section style="margin:16px 0"><div class="page-head" style="margin-bottom:12px"><div><h2 style="margin:0">Live project risk assessment</h2><p style="margin:5px 0 0;color:#657087">Calculated from current project records in Supabase — independent of contributor predictions.</p></div><button class="secondary" id="aiProjectRefresh">Refresh project data</button></div><div class="stats"><div class="stat"><div><strong>'+rows.length+'</strong><span>Projects assessed</span></div></div><div class="stat"><div><strong>'+counts.Critical+'</strong><span>Critical</span></div></div><div class="stat"><div><strong>'+counts.High+'</strong><span>High</span></div></div><div class="stat"><div><strong>'+counts.Medium+'</strong><span>Medium</span></div></div></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;margin-top:14px">'+cards+'</div><p style="font-size:12px;color:#748095;margin-top:12px">Important: this is an explainable rule-based risk index, not a machine-learning probability or a validated prediction. Scores depend on the completeness and accuracy of project records; missing fields are not treated as zero risk.</p></section>';
+    const ranking=rows.map(({p,a},i)=>'<tr><td>'+(i+1)+'</td><td><b>'+aiEscape(p.name||p.project_code||'Unnamed project')+'</b><br><small>'+aiEscape([p.district,p.state].filter(Boolean).join(', '))+'</small></td><td>'+a.score+'/100</td><td><span class="status '+(a.level==='Critical'||a.level==='High'?'risk':a.level==='Low'?'track':'medium')+'">'+a.level+'</span></td><td>'+a.coveragePct+'%</td><td>'+aiEscape(a.priority)+'</td></tr>').join('');
+    live='<section style="margin:16px 0"><div class="page-head" style="margin-bottom:12px"><div><h2 style="margin:0">Live project risk intelligence</h2><p style="margin:5px 0 0;color:#657087">Explainable assessment from saved project records · sorted by review priority</p></div><button class="secondary" id="aiProjectRefresh">↻ Refresh data</button></div><div class="stats"><div class="stat"><div><strong>'+rows.length+'</strong><span>Projects assessed</span></div></div><div class="stat"><div><strong>'+counts.Critical+'</strong><span>Critical</span></div></div><div class="stat"><div><strong>'+counts.High+'</strong><span>High</span></div></div><div class="stat"><div><strong>'+avgCoverage+'%</strong><span>Average data coverage</span></div></div></div><div class="insights-grid" style="margin:14px 0"><div class="panel"><h3>Portfolio risk overview</h3><div style="display:flex;align-items:baseline;gap:8px"><strong style="font-size:34px">'+averageScore+'</strong><span style="color:#657087">average risk index / 100</span></div><div class="bars" style="margin-top:14px">'+['Critical','High','Medium','Low'].map(k=>'<div class="bar-row"><span>'+k+'</span><div class="bar"><i style="width:'+(rows.length?counts[k]/rows.length*100:0)+'%"></i></div><b>'+counts[k]+'</b></div>').join('')+'</div></div><div class="panel"><h3>Most common risk drivers</h3><div class="bars">'+driverHtml+'</div></div></div><div class="panel" style="margin-bottom:14px"><h3>Priority register</h3><div class="table-wrap"><table class="data-table" style="min-width:680px"><thead><tr><th>Rank</th><th>Project</th><th>Risk index</th><th>Band</th><th>Data coverage</th><th>Priority</th></tr></thead><tbody>'+ranking+'</tbody></table></div></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px">'+cards+'</div><p style="font-size:12px;color:#748095;margin-top:14px">Method note: this is a transparent rule-based screening index, not a trained ML model, legal opinion or probability of project failure. Missing data lowers coverage but is never treated as zero risk. Risk bands help prioritise human review; verify source records before taking action.</p></section>';
   }
   return historical.replace('<div class="panel" style="margin-bottom:16px;border-left:4px solid #d18b43">',live+'<div class="panel" style="margin-bottom:16px;border-left:4px solid #d18b43">');
 };
