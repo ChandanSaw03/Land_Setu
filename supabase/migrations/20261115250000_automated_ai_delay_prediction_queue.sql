@@ -36,7 +36,7 @@ $$;
 revoke all on function private.enqueue_landsetu_prediction(uuid,uuid) from public,anon,authenticated;
 
 create or replace function private.queue_landsetu_prediction_changes()
-returns trigger language plpgsql security definer set search_path = '' as $$
+returns trigger language plpgsql security definer set search_path = '' as $
 declare pid uuid; paid uuid;
 begin
   if TG_TABLE_NAME='projects' then
@@ -44,14 +44,20 @@ begin
     perform private.enqueue_landsetu_prediction(pid,null);
     perform private.enqueue_landsetu_prediction(pid,p.id) from public.land_parcels p where p.project_id=pid;
   elsif TG_TABLE_NAME='land_parcels' then
-    perform private.enqueue_landsetu_prediction(coalesce(NEW.project_id,OLD.project_id),coalesce(NEW.id,OLD.id));
+    pid:=coalesce(NEW.project_id,OLD.project_id); paid:=coalesce(NEW.id,OLD.id);
+    perform private.enqueue_landsetu_prediction(pid,null);
+    perform private.enqueue_landsetu_prediction(pid,paid);
   elsif TG_TABLE_NAME='legal_cases' then
     pid:=coalesce(NEW.project_id,OLD.project_id); paid:=coalesce(NEW.parcel_id,OLD.parcel_id);
-    perform private.enqueue_landsetu_prediction(pid,paid);
+    perform private.enqueue_landsetu_prediction(pid,null);
+    if paid is not null then perform private.enqueue_landsetu_prediction(pid,paid); end if;
   elsif TG_TABLE_NAME='parcel_acquisitions' then
-    perform private.enqueue_landsetu_prediction(coalesce(NEW.project_id,OLD.project_id),coalesce(NEW.parcel_id,OLD.parcel_id));
+    pid:=coalesce(NEW.project_id,OLD.project_id); paid:=coalesce(NEW.parcel_id,OLD.parcel_id);
+    perform private.enqueue_landsetu_prediction(pid,null);
+    perform private.enqueue_landsetu_prediction(pid,paid);
   elsif TG_TABLE_NAME in ('acquisition_milestones','acquisition_awards') then
-    perform private.enqueue_landsetu_prediction(coalesce(NEW.project_id,OLD.project_id),null);
+    pid:=coalesce(NEW.project_id,OLD.project_id);
+    perform private.enqueue_landsetu_prediction(pid,null);
     if TG_TABLE_NAME='acquisition_awards' then
       paid:=coalesce(NEW.acquisition_id,OLD.acquisition_id);
       if paid is not null then
@@ -62,12 +68,13 @@ begin
   elsif TG_TABLE_NAME='intelligence_documents' then
     if coalesce(NEW.verification_status,OLD.verification_status)='verified' then
       pid:=coalesce(NEW.project_id,OLD.project_id); paid:=coalesce(NEW.parcel_id,OLD.parcel_id);
-      perform private.enqueue_landsetu_prediction(pid,paid);
+      if pid is not null then perform private.enqueue_landsetu_prediction(pid,null); end if;
+      if pid is not null and paid is not null then perform private.enqueue_landsetu_prediction(pid,paid); end if;
     end if;
   end if;
   return coalesce(NEW,OLD);
 end;
-$$;
+$;
 revoke all on function private.queue_landsetu_prediction_changes() from public,anon,authenticated;
 
 drop trigger if exists queue_ai_prediction_project on public.projects;
