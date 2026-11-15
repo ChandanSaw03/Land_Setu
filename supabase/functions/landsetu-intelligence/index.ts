@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
     };
     const body = await req.json();
     const action = clean(body.action,60);
-    if(isCron && action!=="scan_sources") return json({error:"Scheduled token is only valid for source scanning."},403);
+    if(isCron && !["scan_sources","process_prediction_queue"].includes(action)) return json({error:"Scheduled token is not valid for this action."},403);
 
     if (action === "scan_sources") {
       let sourceQuery=admin.from("intelligence_sources").select("*").eq("enabled",true);
@@ -141,6 +141,77 @@ Deno.serve(async (req) => {
         results.push({source:source.name,status,http_status:httpStatus,discovered:found,summary,error:errorMessage});
       }
       return json({ok:true,results});
+    }
+
+    if(action==="process_prediction_queue"){
+      if(!isCron) return json({error:"Scheduled execution only."},403);
+      const {data:jobs,error:queueError}=await admin.from("ai_prediction_queue").select("*").eq("status","pending").lte("scheduled_at",new Date().toISOString()).order("created_at").limit(Math.max(1,Math.min(10,Number(body.limit)||5)));
+      if(queueError) throw queueError;
+      const results=[];
+      for(const job of jobs||[]){
+        const {data:claimed}=await admin.from("ai_prediction_queue").update({status:"processing",updated_at:new Date().toISOString()}).eq("id",job.id).eq("status","pending").select("id").maybeSingle();
+        if(!claimed) continue;
+        try{
+          const projectId=job.project_id;
+          const [{data:project,error:pErr},{data:parcels,error:parcelErr},{data:cases,error:caseErr},{data:milestones},{data:awards},{data:docs}] = await Promise.all([
+            admin.from("projects").select("*").eq("id",projectId).single(),
+            admin.from("land_parcels").select("*").eq("project_id",projectId).limit(250),
+            admin.from("legal_cases").select("*").eq("project_id",projectId).limit(250),
+            admin.from("acquisition_milestones").select("*").eq("project_id",projectId).limit(100),
+            admin.from("acquisition_awards").select("*").eq("project_id",projectId).limit(100),
+            admin.from("intelligence_documents").select("title,document_type,published_on,extracted_data,verification_status,parcel_id").eq("project_id",projectId).eq("verification_status","verified").limit(100)
+          ]);
+          if(pErr) throw pErr;
+          if(parcelErr) throw parcelErr;
+          if(caseErr) throw caseErr;
+          let snapshot, prompt, modelVersion;
+          if(job.parcel_id){
+            const parcel=(parcels||[]).find(p=>p.id===job.parcel_id);
+            if(!parcel) throw new Error("Queued parcel no longer exists.");
+            const [{data:parcelCases,error:pcErr},{data:acquisitions,error:aErr}]=await Promise.all([
+              admin.from("legal_cases").select("*").eq("parcel_id",job.parcel_id).limit(100),
+              admin.from("parcel_acquisitions").select("*").eq("parcel_id",job.parcel_id).limit(100)
+            ]);
+            if(pcErr) throw pcErr;
+            if(aErr) throw aErr;
+            const parcelDocs=(docs||[]).filter(d=>!d.parcel_id||d.parcel_id===job.parcel_id);
+            snapshot={project,parcel,parcel_acquisitions:acquisitions||[],parcel_legal_cases:parcelCases||[],project_milestones:milestones||[],awards:awards||[],verified_government_documents:parcelDocs};
+            prompt="You are Bhoomi Predict, an evidence-led Indian land-acquisition analyst. Forecast remaining calendar days for THIS SINGLE PARCEL only. Evaluate its acquisition stage, notices, objection status and deadlines, linked court cases and stays, title/ownership conflicts, survey mismatch, award and compensation status, possession and verified government documents. Do not apply project-wide case counts as parcel facts. Do not invent missing data or treat statutory deadlines as actual durations. Return JSON with predicted_additional_days, range_min_days, range_max_days, estimated_completion_date (YYYY-MM-DD), risk_score (0-100), risk_level (Low/Medium/High/Critical/Insufficient data), data_completeness (0-100), drivers [{factor,observed_evidence,estimated_delay_days,confidence}], recommendations [{action,owner_role,urgency}], explanation, missing_data, limitations. If evidence is insufficient, days and date must be null and risk_level Insufficient data. Do not claim statistical confidence without validated historical parcel outcomes.";
+            modelVersion="bhoomi-predict-parcel-llm-v1";
+          }else{
+            snapshot={project,parcels:parcels||[],legal_cases:cases||[],acquisition_milestones:milestones||[],awards:awards||[],verified_government_documents:docs||[]};
+            prompt="You are Bhoomi Predict, an evidence-led Indian land acquisition delay analyst. Estimate remaining calendar days to complete the current acquisition scope. Evaluate parcel stages, 3A/3C/3D notifications, objections, active court cases/stays, ownership conflicts, survey mismatch, awards, compensation, approvals, possession and rehabilitation milestones. Do not invent missing data or assume statutory deadlines are actual durations. Return JSON with predicted_additional_days, range_min_days, range_max_days, estimated_completion_date (YYYY-MM-DD), risk_score (0-100), risk_level (Low/Medium/High/Critical/Insufficient data), data_completeness (0-100), drivers [{factor,observed_evidence,estimated_delay_days,confidence}], recommendations [{action,owner_role,urgency}], explanation, missing_data, limitations. If evidence is insufficient, days and date must be null and risk_level Insufficient data. Do not claim statistical confidence without validated historical outcomes.";
+            modelVersion="bhoomi-predict-llm-v1";
+          }
+          const analysis=await callAI(JSON.stringify(snapshot).slice(0,job.parcel_id?120000:140000),prompt);
+          const record={
+            project_id:projectId,parcel_id:job.parcel_id||null,model_version:modelVersion,
+            predicted_additional_days:Number.isInteger(analysis.predicted_additional_days)?Math.max(0,analysis.predicted_additional_days):null,
+            range_min_days:Number.isInteger(analysis.range_min_days)?Math.max(0,analysis.range_min_days):null,
+            range_max_days:Number.isInteger(analysis.range_max_days)?Math.max(0,analysis.range_max_days):null,
+            estimated_completion_date:analysis.estimated_completion_date||null,
+            risk_score:Number.isInteger(analysis.risk_score)?Math.max(0,Math.min(100,analysis.risk_score)):null,
+            risk_level:analysis.risk_level||"Insufficient data",
+            drivers:Array.isArray(analysis.drivers)?analysis.drivers:[],
+            recommendations:Array.isArray(analysis.recommendations)?analysis.recommendations:[],
+            data_completeness:Number.isInteger(analysis.data_completeness)?Math.max(0,Math.min(100,analysis.data_completeness)):0,
+            explanation:clean(analysis.explanation,4000),
+            input_snapshot:{queue_id:job.id,project_id:projectId,parcel_id:job.parcel_id||null,generated_automatically:true,parcel_count:(parcels||[]).length,legal_case_count:(cases||[]).length,verified_document_count:(docs||[]).length}
+          };
+          const {data:saved,error:saveErr}=await admin.from("ai_delay_predictions").insert(record).select("id,predicted_additional_days,risk_level,estimated_completion_date").single();
+          if(saveErr) throw saveErr;
+          if(["High","Critical"].includes(record.risk_level)){
+            await admin.from("intelligence_alerts").insert({project_id:projectId,parcel_id:job.parcel_id||null,alert_type:job.parcel_id?"ai_parcel_risk_prediction":"ai_risk_prediction",severity:record.risk_level.toLowerCase(),title:"Bhoomi Predict: "+record.risk_level+" "+(job.parcel_id?"parcel":"project")+" risk",message:record.explanation||"AI identified acquisition delay risks.",is_read:false});
+          }
+          await admin.from("ai_prediction_queue").update({status:"completed",last_error:null,updated_at:new Date().toISOString()}).eq("id",job.id);
+          results.push({queue_id:job.id,project_id:projectId,parcel_id:job.parcel_id||null,status:"completed",prediction:saved});
+        }catch(e){
+          const attempts=(job.attempts||0)+1, failed=attempts>=5;
+          await admin.from("ai_prediction_queue").update({status:failed?"failed":"pending",attempts,last_error:clean(e.message,1000),scheduled_at:new Date(Date.now()+Math.min(360,15*attempts)*60000).toISOString(),updated_at:new Date().toISOString()}).eq("id",job.id);
+          results.push({queue_id:job.id,status:failed?"failed":"retry_scheduled",error:clean(e.message,500)});
+        }
+      }
+      return json({ok:true,processed:results.length,results});
     }
 
     if (action === "analyze_document") {
