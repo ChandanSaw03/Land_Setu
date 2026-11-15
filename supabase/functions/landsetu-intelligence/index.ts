@@ -57,6 +57,18 @@ Deno.serve(async (req) => {
     if (profileError || !profile) return json({error:"User profile could not be verified"},403);
     const allowed = ["national_admin","state_admin","project_manager","analyst"].includes(profile.role);
     if (!allowed) return json({error:"Your account is not permitted to run acquisition intelligence"},403);
+    const canAccessProject = async (projectId) => {
+      if (profile.role === "national_admin" || profile.role === "analyst") return true;
+      if (!projectId) return false;
+      const {data:project} = await admin.from("projects").select("id,state").eq("id",projectId).maybeSingle();
+      if (!project) return false;
+      if (profile.role === "state_admin") return project.state === profile.assigned_state;
+      if (profile.role === "project_manager") {
+        const {data:assignment} = await admin.from("project_assignments").select("project_id").eq("project_id",projectId).eq("user_id",user.id).maybeSingle();
+        return !!assignment;
+      }
+      return false;
+    };
     const body = await req.json();
     const action = clean(body.action,60);
 
@@ -123,6 +135,7 @@ Deno.serve(async (req) => {
         const match=(projects||[]).find(p=>text.toLowerCase().includes(String(p.name||"").toLowerCase()) || (p.project_code && text.toLowerCase().includes(p.project_code.toLowerCase())));
         if(match) projectId=match.id;
       }
+      if(projectId && !(await canAccessProject(projectId))) return json({error:"You do not have access to the selected project."},403);
       const sourceUrl=clean(body.source_url,1500)||null;
       const hash=await sha256(text);
       const {data:doc,error:docError}=await admin.from("intelligence_documents").insert({
@@ -156,6 +169,7 @@ Deno.serve(async (req) => {
         admin.from("acquisition_awards").select("*").eq("project_id",projectId).limit(100)
       ]);
       if(pError) throw pError; if(parcelError) throw parcelError; if(caseError) throw caseError;
+      if(!(await canAccessProject(projectId))) return json({error:"You do not have access to this project."},403);
       const snapshot={project,parcels:parcels||[],legal_cases:cases||[],acquisition_milestones:milestones||[],awards:awards||[]};
       const result=await callAI(JSON.stringify(snapshot).slice(0,140000),
         "You are Bhoomi Predict, an evidence-led Indian land acquisition delay analyst. Estimate remaining calendar days to complete the current acquisition scope, not days already elapsed. Use project and parcel stage, 3A/3C/3D notification dates, objections, active court cases/stays, title/ownership conflicts, survey mismatch, award preparation, compensation payment, approvals, possession and R&R milestones. Do not assume statutory deadlines are actual durations. Do not invent missing data. Distinguish recorded facts from assumptions. Return valid JSON: predicted_additional_days (integer or null), range_min_days (integer or null), range_max_days (integer or null), estimated_completion_date (YYYY-MM-DD or null), risk_score (0-100 or null), risk_level (Low/Medium/High/Critical/Insufficient data), data_completeness (0-100), drivers (array of {factor,observed_evidence,estimated_delay_days,confidence}), recommendations (array of {action,owner_role,urgency}), explanation, missing_data (array), limitations. If insufficient evidence, return null days and Insufficient data. Never claim statistical confidence unless supported by validation data.");
@@ -182,6 +196,9 @@ Deno.serve(async (req) => {
       const documentId=clean(body.document_id,80), decision=body.decision;
       if(!documentId || !["verified","rejected"].includes(decision)) throw new Error("A document and a valid verification decision are required.");
       if(!["national_admin","state_admin"].includes(profile.role)) return json({error:"Only national or state administrators can verify official extracted records."},403);
+      const {data:existing,error:lookupError}=await admin.from("intelligence_documents").select("id,project_id").eq("id",documentId).maybeSingle();
+      if(lookupError || !existing) throw new Error("Document not found.");
+      if(profile.role==="state_admin" && !(await canAccessProject(existing.project_id))) return json({error:"You cannot verify a document outside your assigned state."},403);
       const {data:doc,error}=await admin.from("intelligence_documents").update({verification_status:decision}).eq("id",documentId).select("id,verification_status").single();
       if(error) throw error;
       return json({ok:true,document:doc});
