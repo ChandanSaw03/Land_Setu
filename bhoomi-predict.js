@@ -17,6 +17,7 @@
   total=Math.min(365,Math.round(total));
   const missing=['approval_delay_days','dispute_count','compensation_completion','possession_progress','rehabilitation_progress'].filter(k=>!has(k));
   const coverage=missing.length>=4?'Low':missing.length>=2?'Limited':missing.length===1?'Moderate':'Better';
+  if(missing.length>=4&&drivers.length===0)return {days:null,low:null,high:null,coverage:'Insufficient',drivers:[],missing};
   const spread=coverage==='Low'?Math.max(21,Math.round(total*.5)):coverage==='Limited'?Math.max(14,Math.round(total*.35)):Math.max(7,Math.round(total*.25));
   return {days:total,low:Math.max(0,total-spread),high:Math.min(365,total+spread),coverage,drivers:drivers.sort((a,b)=>b.days-a.days),missing};
  }
@@ -25,7 +26,7 @@
   if(!supabaseClient||!currentUser){host.innerHTML='<p>Please sign in to calculate project forecasts.</p>';return;}
   host.innerHTML='<p style="color:#657087">Calculating project delay forecasts…</p>';
   const fields='id,project_code,name,state,district,status,progress,expected_completion,approval_delay_days,dispute_count,compensation_completion,possession_progress,rehabilitation_progress,historical_department_delay_days';
-  const {data,error}=await window.supabaseClient.from('projects').select(fields).order('created_at',{ascending:false});
+  const {data,error}=await supabaseClient.from('projects').select(fields).order('created_at',{ascending:false});
   if(error){host.innerHTML='<p style="color:#a33">Could not load project records: '+esc(error.message)+'</p>';return;}
   if(!data?.length){host.innerHTML='<p>No projects are available for prediction yet.</p>';return;}
   const rows=data.map(p=>({p,f:forecast(p)})).sort((a,b)=>b.f.days-a.f.days);
@@ -42,6 +43,7 @@
   const first=content.querySelector('.panel');if(first)content.insertBefore(section,first);else content.prepend(section);
   document.getElementById('bhoomiRefresh').addEventListener('click',load);load();
  }
+ window.bhoomiPredictForecast=forecast;
  const prior=render;
  if(typeof prior==='function')render=function(){prior();if(page==='ai-predictions')setTimeout(mount,0);};
  document.addEventListener('click',e=>{if(e.target.closest('[data-page="ai-predictions"]'))setTimeout(mount,50);});
