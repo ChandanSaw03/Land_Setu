@@ -19,7 +19,7 @@ screen.innerHTML = `<div class="auth-card"><div class="auth-brand"><div class="m
 app.before(screen);
 app.style.display = "none";
 app.style.visibility = "hidden";
-screen.innerHTML = `<div class="auth-card" role="status" aria-live="polite"><div class="auth-brand"><div class="mark" aria-hidden="true">🌍</div><h1>LandSetu</h1><p>Predict · Plan · Prevent</p></div><p class="auth-sub" style="text-align:center;margin:0">Checking your secure session…</p></div>`;
+screen.innerHTML = `<div class="auth-card"><div class="auth-brand"><div class="mark" aria-hidden="true">🌍</div><h1>LandSetu</h1><p>Predict · Plan · Prevent</p></div><div id="auth-content" role="status" aria-live="polite"><p class="auth-sub" style="text-align:center;margin:0">Checking your secure session…</p></div></div>`;
 
 const content = screen.querySelector("#auth-content");
 let mode = "login";
