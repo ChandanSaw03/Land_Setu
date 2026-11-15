@@ -112,6 +112,10 @@ if (!configured) {
     content.querySelector("#auth-submit").onclick = submit;
   }
 
+  // Render a usable login form immediately instead of waiting for Supabase's
+  // session event. A slow session restore must never leave the splash visible.
+  render();
+
   async function submit() {
     if (busy) return;
 
