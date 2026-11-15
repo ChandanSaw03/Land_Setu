@@ -248,5 +248,4 @@ if (!configured) {
     }
   });
 
-  render();
 }
