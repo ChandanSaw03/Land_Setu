@@ -77,9 +77,18 @@
       const buffer=await file.arrayBuffer(),pdf=await pdfjs.getDocument({data:buffer}).promise;
       let text='';
       for(let i=1;i<=Math.min(pdf.numPages,100);i++){const page=await pdf.getPage(i);const content=await page.getTextContent();text+='\n'+content.items.map(x=>x.str).join(' ');}
-      if(text.trim().length<100)throw new Error('This PDF appears scanned/image-only. OCR support is not configured yet; upload a text-readable PDF.');
-      status('Sending '+pdf.numPages+'-page document to AI for structured extraction…');
-      const r=await invoke({action:'analyze_document',title:file.name,text,project_id:document.getElementById('lsIntProject')?.value||null});
+      const images=[];
+      if(text.trim().length<100){
+        for(let i=1;i<=Math.min(pdf.numPages,8);i++){
+          const page=await pdf.getPage(i),viewport=page.getViewport({scale:1.35});
+          const canvas=document.createElement('canvas');canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
+          await page.render({canvas,canvasContext:canvas.getContext('2d'),viewport}).promise;
+          images.push(canvas.toDataURL('image/jpeg',0.72));
+        }
+      }
+      if(text.trim().length<100&&images.length===0)throw new Error('Could not render readable PDF pages for OCR.');
+      status('Sending '+pdf.numPages+'-page document to AI for text extraction'+(images.length?' and scanned-page OCR':'')+'…');
+      const r=await invoke({action:'analyze_document',title:file.name,text,images,project_id:document.getElementById('lsIntProject')?.value||null});
       status('Extracted document saved for review. '+(r.extracted?.survey_numbers?.length||0)+' survey number(s) detected; status remains unverified.');
       await refreshNoAuto();
     }catch(e){status('Document analysis failed: '+e.message);}
