@@ -148,7 +148,7 @@
   document.head.appendChild(style);
   const previousRender=window.render;
   if(typeof previousRender==='function')window.render=function(){previousRender();if(page==='ai-predictions')setTimeout(mount,0);};
-  document.addEventListener('landsetu:authenticated',()=>setTimeout(mount,100));
+  window.addEventListener('landsetu:authenticated',()=>setTimeout(mount,100));
   document.addEventListener('click',e=>{if(e.target.closest('[data-page="ai-predictions"]'))setTimeout(mount,100);});
   setTimeout(mount,200);
 })();
