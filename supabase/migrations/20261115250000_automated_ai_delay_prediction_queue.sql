@@ -117,3 +117,6 @@ $$;
 revoke all on function private.trigger_landsetu_prediction_queue() from public,anon,authenticated;
 select cron.unschedule(jobid) from cron.job where jobname='landsetu-ai-delay-prediction-worker';
 select cron.schedule('landsetu-ai-delay-prediction-worker','*/15 * * * *','select private.trigger_landsetu_prediction_queue();');
+drop policy if exists "service role manages AI prediction queue" on public.ai_prediction_queue;
+create policy "service role manages AI prediction queue" on public.ai_prediction_queue
+for all to service_role using (true) with check (true);
